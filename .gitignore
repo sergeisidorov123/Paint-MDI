@@ -47,3 +47,6 @@ tmp/
 downloads/
 media/
 uploads/
+
+# 9. Файлы изображений
+.png
