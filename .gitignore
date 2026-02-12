@@ -1,0 +1,49 @@
+# 1. Виртуальные окружения и Python-кеш
+.venv/
+venv/
+env/
+.venv*/
+env*/
+ENV/
+*.pyc
+__pycache__/
+*.py[cod]
+.idea
+
+# 2. Конфигурационные файлы
+.env
+.env.*
+!.env.example
+secrets/
+config/secrets/
+
+# 3. Базы данных
+*.db
+*.sqlite
+*.sqlite3
+
+# 4. Логи
+*.log
+logs/
+.logs/
+
+# 5. Файлы IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 6. Файлы ОС
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 7. Временные файлы
+temp/
+tmp/
+
+# 8. Медиа/загрузки
+downloads/
+media/
+uploads/
