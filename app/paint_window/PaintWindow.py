@@ -16,11 +16,11 @@ class WindowCounter:
     def reduce_count(self): 
         self.__count_of_window -= 1
 
+count = WindowCounter()
+    
 class PaintWindow:
     """Класс отдельного окна для рисования"""
     
-    global count
-    count = WindowCounter()
         
     def __init__(self, root=None):
         """Создает новое окно для рисования"""
@@ -45,14 +45,17 @@ class PaintWindow:
          
         self.canvas_width = 2000
         self.canvas_height = 2000
+        self.canvas.configure(scrollregion=(0, 0, self.canvas_width, self.canvas_height))
+        
         self.image = Image.new("RGB", (self.canvas_width, self.canvas_height), "white")
         self.draw = ImageDraw.Draw(self.image)
-        self.canvas.configure(scrollregion=(0, 0, self.canvas_width, self.canvas_height))
         
         self.visible_x = 0
         self.visible_y = 0
         self.visible_width = 800
         self.visible_height = 500
+        
+        self.canvas.bind("<Configure>", self.on_canvas_configure)
         
         button_frame = Frame(self.window)
         button_frame.pack(pady=5)
@@ -133,8 +136,9 @@ class PaintWindow:
             
             if file_path:
                 visible_region.save(file_path)
-                messagebox.showinfo("Image Saved", 
-                                   f"Visible area saved!\n{file_path}")
+                messagebox.showinfo("Success", 
+                                   f"Image saved in \n{file_path}", 
+                                   parent=self.window)
     
     def create_new_window(self):
         """Создает новое окно для рисования"""
@@ -153,13 +157,6 @@ class PaintWindow:
         self.is_closed = True
         self.window.quit()
         self.window.destroy()
-    
-    def on_canvas_resize(self, event):
-        """Обновляет размеры холста при изменении размера окна"""
-        self.canvas_width = event.width
-        self.canvas_height = event.height
-        self.image = self.image.resize((self.canvas_width, self.canvas_height), Image.ANTIALIAS)
-        self.draw = ImageDraw.Draw(self.image)
         
     def on_canvas_configure(self, event):
         """Обновляет информацию о видимой области"""
@@ -168,5 +165,4 @@ class PaintWindow:
         self.visible_x = self.canvas.canvasx(0)
         self.visible_y = self.canvas.canvasy(0)
         
-
         self.canvas.configure(scrollregion=(0, 0, self.canvas_width, self.canvas_height))
