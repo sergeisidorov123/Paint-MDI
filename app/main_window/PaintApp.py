@@ -1,4 +1,5 @@
 from tkinter import *
+from tkinter import messagebox
 
 from app.paint_window.PaintWindow import PaintWindow
 
@@ -16,21 +17,9 @@ class PaintApp:
         welcome_label = Label(self.root, 
                              text="Paint MDI!", 
                              font=("Arial", 16))
-        welcome_label.pack(pady=50)
+        welcome_label.pack(pady=25)
         
-        new_paint_button = Button(self.root, 
-                                 text="Create New Paint Window", 
-                                 command=self.create_paint_window,
-                                 font=("Arial", 12),
-                                 padx=20, pady=10)
-        new_paint_button.pack(pady=20)
-        
-        exit_button = Button(self.root, 
-                            text="Exit", 
-                            command=self.exit_app,
-                            font=("Arial", 12),
-                            padx=20, pady=10)
-        exit_button.pack(pady=20)
+        self.__buttons_create()
         
         self.windows = []
         
@@ -50,3 +39,31 @@ class PaintApp:
                 window.close_window()
         self.root.quit()
         self.root.destroy()
+        
+    def __about_app(self):
+        """Показывает информацию о приложении"""
+        messagebox.showinfo("About Paint App", 
+                            "Paint MDI Application\n\nLaboratory work num 1\n\nCreated by Sidorov Sergei, RIS-24-1")
+        
+    def __buttons_create(self):
+        """Создает кнопки для управления приложением"""
+        new_paint_button = Button(self.root, 
+                                 text="Create New Paint Window", 
+                                 command=self.create_paint_window,
+                                 font=("Arial", 12),
+                                 padx=20, pady=10)
+        new_paint_button.pack(pady=10)
+        
+        about_button = Button(self.root, 
+                              text="About", 
+                              command=self.__about_app,
+                              font=("Arial", 12),
+                              padx=20, pady=10)
+        about_button.pack(pady=10)
+        
+        exit_button = Button(self.root, 
+                            text="Exit", 
+                            command=self.exit_app,
+                            font=("Arial", 12),
+                            padx=20, pady=10)
+        exit_button.pack(pady=10)

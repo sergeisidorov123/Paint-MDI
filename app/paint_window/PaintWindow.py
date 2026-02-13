@@ -2,19 +2,7 @@ from tkinter import *
 from PIL import Image, ImageDraw
 from tkinter import colorchooser, messagebox, filedialog
 import time
-
-class WindowCounter:
-    """Класс для отслеживания количества открытых окон рисования """
-    __count_of_window = 0
-    
-    def increase_count(self):
-        self.__count_of_window += 1
-
-    def get_count(self): 
-        return self.__count_of_window
-    
-    def reduce_count(self): 
-        self.__count_of_window -= 1
+from .WindowCounter import WindowCounter
 
 count = WindowCounter()
     
@@ -60,25 +48,7 @@ class PaintWindow:
         button_frame = Frame(self.window)
         button_frame.pack(pady=5)
         
-        self.color_button = Button(button_frame, text="Choose Color", 
-                                  command=self.choose_color)
-        self.color_button.pack(side=LEFT, padx=5)
-        
-        self.clear_button = Button(button_frame, text="Clear Canvas", 
-                                  command=self.clear_canvas)
-        self.clear_button.pack(side=LEFT, padx=5)
-        
-        self.save_button = Button(button_frame, text="Save Image", 
-                                 command=self.save_image)
-        self.save_button.pack(side=LEFT, padx=5)
-        
-        self.new_window_button = Button(button_frame, text="New Window", 
-                                       command=self.create_new_window)
-        self.new_window_button.pack(side=LEFT, padx=5)
-        
-        self.close_button = Button(button_frame, text="Close Window", 
-                                  command=self.close_window)
-        self.close_button.pack(side=LEFT, padx=5)
+        self.__buttons_create()
         
         self.current_color = "black"
         self.last_x, self.last_y = None, None
@@ -140,11 +110,6 @@ class PaintWindow:
                                    f"Image saved in \n{file_path}", 
                                    parent=self.window)
     
-    def create_new_window(self):
-        """Создает новое окно для рисования"""
-        if not self.is_closed:
-            root = self.window.master if self.window.master else self.window
-            PaintWindow(root)
     
     def close_window(self):
         """Закрывает текущее окно"""
@@ -166,3 +131,25 @@ class PaintWindow:
         self.visible_y = self.canvas.canvasy(0)
         
         self.canvas.configure(scrollregion=(0, 0, self.canvas_width, self.canvas_height))
+        
+    def __buttons_create(self):
+        """Создает кнопки для управления окном рисования"""
+        button_frame = Frame(self.window)
+        button_frame.pack(pady=5)
+        
+        self.color_button = Button(button_frame, text="Choose Color", 
+                                  command=self.choose_color)
+        self.color_button.pack(side=LEFT, padx=5)
+        
+        self.clear_button = Button(button_frame, text="Clear Canvas", 
+                                  command=self.clear_canvas)
+        self.clear_button.pack(side=LEFT, padx=5)
+        
+        self.save_button = Button(button_frame, text="Save Image", 
+                                 command=self.save_image)
+        self.save_button.pack(side=LEFT, padx=5)
+        
+        self.close_button = Button(button_frame, text="Close Window", 
+                                  command=self.close_window)
+        self.close_button.pack(side=LEFT, padx=5)
+        
