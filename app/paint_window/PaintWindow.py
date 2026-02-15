@@ -3,13 +3,13 @@ from PIL import Image, ImageDraw
 from tkinter import colorchooser, messagebox, filedialog
 import time
 from .WindowCounter import WindowCounter
+from ..ButtonDescription import ButtonDescription
 
 count = WindowCounter()
     
 class PaintWindow:
     """Класс отдельного окна для рисования"""
     
-        
     def __init__(self, root=None):
         """Создает новое окно для рисования"""
         if root:
@@ -25,7 +25,6 @@ class PaintWindow:
         
         self.is_closed = False
         
-        # Создание холста для рисования
         self.window.resizable(True, True)
         
         self.canvas = Canvas(self.window, bg="white")
@@ -140,16 +139,20 @@ class PaintWindow:
         self.color_button = Button(button_frame, text="Choose Color", 
                                   command=self.choose_color)
         self.color_button.pack(side=LEFT, padx=5)
+        ButtonDescription(self.color_button, "Выбор цвета для рисования")
         
         self.clear_button = Button(button_frame, text="Clear Canvas", 
                                   command=self.clear_canvas)
         self.clear_button.pack(side=LEFT, padx=5)
+        ButtonDescription(self.clear_button, "Очистка холста")
         
         self.save_button = Button(button_frame, text="Save Image", 
                                  command=self.save_image)
         self.save_button.pack(side=LEFT, padx=5)
+        ButtonDescription(self.save_button, "Сохранение изображения")
         
         self.close_button = Button(button_frame, text="Close Window", 
                                   command=self.close_window)
         self.close_button.pack(side=LEFT, padx=5)
+        ButtonDescription(self.close_button, "Закрытие окна рисования")
         

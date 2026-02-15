@@ -2,6 +2,7 @@ from tkinter import *
 from tkinter import messagebox
 
 from app.paint_window.PaintWindow import PaintWindow
+from app.ButtonDescription import ButtonDescription
 
 
 
@@ -15,7 +16,7 @@ class PaintApp:
         self.root.geometry("400x300")
         
         welcome_label = Label(self.root, 
-                             text="Paint MDI!", 
+                             text="Paint MDI", 
                              font=("Arial", 16))
         welcome_label.pack(pady=25)
         
@@ -53,6 +54,7 @@ class PaintApp:
                                  font=("Arial", 12),
                                  padx=20, pady=10)
         new_paint_button.pack(pady=10)
+        ButtonDescription(new_paint_button, "Создание нового окна для рисования")
         
         about_button = Button(self.root, 
                               text="About", 
@@ -60,6 +62,7 @@ class PaintApp:
                               font=("Arial", 12),
                               padx=20, pady=10)
         about_button.pack(pady=10)
+        ButtonDescription(about_button, "Информация о приложении")
         
         exit_button = Button(self.root, 
                             text="Exit", 
@@ -67,3 +70,4 @@ class PaintApp:
                             font=("Arial", 12),
                             padx=20, pady=10)
         exit_button.pack(pady=10)
+        ButtonDescription(exit_button, "Выход из приложения")
