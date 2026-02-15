@@ -24,16 +24,19 @@ class PaintApp:
         
         self.windows = []
         
-        self.root.protocol("WM_DELETE_WINDOW", self.exit_app)
+        self.root.protocol("WM_DELETE_WINDOW", self.__exit_app)
+        
+        self.root.bind_all("<Control-n>", self.__create_paint_window)
+        self.root.bind_all("<Control-q>", self.__exit_app)
         
         self.root.mainloop()
     
-    def create_paint_window(self):
+    def __create_paint_window(self, event=None):
         """Создает новое окно для рисования"""
         paint_window = PaintWindow(self.root)
         self.windows.append(paint_window)
     
-    def exit_app(self):
+    def __exit_app(self, event=None):
         """Закрывает приложение"""
         for window in self.windows:
             if not window.is_closed:
@@ -50,7 +53,7 @@ class PaintApp:
         """Создает кнопки для управления приложением"""
         new_paint_button = Button(self.root, 
                                  text="Create New Paint Window", 
-                                 command=self.create_paint_window,
+                                 command=self.__create_paint_window,
                                  font=("Arial", 12),
                                  padx=20, pady=10)
         new_paint_button.pack(pady=10)
@@ -66,7 +69,7 @@ class PaintApp:
         
         exit_button = Button(self.root, 
                             text="Exit", 
-                            command=self.exit_app,
+                            command=self.__exit_app,
                             font=("Arial", 12),
                             padx=20, pady=10)
         exit_button.pack(pady=10)

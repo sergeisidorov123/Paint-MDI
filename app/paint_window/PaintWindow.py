@@ -4,9 +4,10 @@ from tkinter import colorchooser, messagebox, filedialog
 import time
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
+from .Painter import Painter
 
 count = WindowCounter()
-    
+        
 class PaintWindow:
     """Класс отдельного окна для рисования"""
     
@@ -44,10 +45,11 @@ class PaintWindow:
         
         self.canvas.bind("<Configure>", self.on_canvas_configure)
         
-        button_frame = Frame(self.window)
-        button_frame.pack(pady=5)
-        
         self.__buttons_create()
+        
+        #binds
+        self.window.bind("<Control-c>", self.close_window)
+        self.window.bind("<Control-x>", self.save_image_as)
         
         self.current_color = "black"
         self.last_x, self.last_y = None, None
@@ -55,26 +57,20 @@ class PaintWindow:
         self.canvas.bind("<B1-Motion>", self.paint)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
         
+        self.painter = Painter(self.canvas, self.draw)
         self.window.protocol("WM_DELETE_WINDOW", self.close_window)
     
     def choose_color(self):
-        """Открывает диалог выбора цвета"""
-        color_code = colorchooser.askcolor(title="Choose color", parent=self.window)
-        if color_code:
-            self.current_color = color_code[1]
+        color_code = colorchooser.askcolor(parent=self.window)
+        if color_code[1]:
+            self.painter.set_color(color_code[1])
     
     def paint(self, event):
-        """Рисует линию на холсте"""
-        if self.last_x and self.last_y and not self.is_closed:
-            self.canvas.create_line(self.last_x, self.last_y, event.x, event.y, 
-                                  fill=self.current_color, width=5)
-            self.draw.line([self.last_x, self.last_y, event.x, event.y], 
-                          fill=self.current_color, width=5)
-        self.last_x, self.last_y = event.x, event.y
+        if not self.is_closed:
+            self.painter.paint(event.x, event.y)
     
     def reset(self, event):
-        """Сбрасывает координаты"""
-        self.last_x, self.last_y = None, None
+        self.painter.reset_coords()
     
     def clear_canvas(self):
         """Очищает холст"""
@@ -82,7 +78,7 @@ class PaintWindow:
             self.canvas.delete("all")
             self.draw.rectangle([0, 0, self.canvas_width, self.canvas_height], fill="white")
     
-    def save_image(self):
+    def save_image_as(self, event=None):
         """Сохраняет ТО, ЧТО ВИДИТ ПОЛЬЗОВАТЕЛЬ"""
         if not self.is_closed:
             self.visible_x = self.canvas.canvasx(0)
@@ -110,7 +106,7 @@ class PaintWindow:
                                    parent=self.window)
     
     
-    def close_window(self):
+    def close_window(self, event=None):
         """Закрывает текущее окно"""
         count.reduce_count()
         self.is_closed = True
@@ -147,7 +143,7 @@ class PaintWindow:
         ButtonDescription(self.clear_button, "Очистка холста")
         
         self.save_button = Button(button_frame, text="Save Image", 
-                                 command=self.save_image)
+                                 command=self.save_image_as)
         self.save_button.pack(side=LEFT, padx=5)
         ButtonDescription(self.save_button, "Сохранение изображения")
         
