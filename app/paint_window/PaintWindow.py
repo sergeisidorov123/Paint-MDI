@@ -13,11 +13,10 @@ class PaintWindow:
     
     def __init__(self, root=None):
         """Создает новое окно для рисования"""
+        count.increase_count()
         if root:
             self.window = Toplevel(root)
-            count.increase_count()
         else:
-            count.increase_count()
             self.window = Tk()
             self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
         
@@ -48,11 +47,9 @@ class PaintWindow:
         self.__buttons_create()
         
         #binds
-        self.window.bind("<Control-c>", self.close_window)
+        self.window.bind("<Control-w>", self.close_window)
         self.window.bind("<Control-x>", self.save_image_as)
         
-        self.current_color = "black"
-        self.last_x, self.last_y = None, None
         
         self.canvas.bind("<B1-Motion>", self.paint)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
@@ -76,7 +73,7 @@ class PaintWindow:
         """Очищает холст"""
         if not self.is_closed:
             self.canvas.delete("all")
-            self.draw.rectangle([0, 0, self.canvas_width, self.canvas_height], fill="white")
+            self.draw.rectangle([0, 0, self.canvas_width, self.canvas_height], fill=self.canvas["background"])
     
     def save_image_as(self, event=None):
         """Сохраняет ТО, ЧТО ВИДИТ ПОЛЬЗОВАТЕЛЬ"""
@@ -127,6 +124,9 @@ class PaintWindow:
         
         self.canvas.configure(scrollregion=(0, 0, self.canvas_width, self.canvas_height))
         
+    def change_size(self, new_size):
+        self.painter.set_width(int(new_size))
+        
     def __buttons_create(self):
         """Создает кнопки для управления окном рисования"""
         button_frame = Frame(self.window)
@@ -151,4 +151,16 @@ class PaintWindow:
                                   command=self.close_window)
         self.close_button.pack(side=LEFT, padx=5)
         ButtonDescription(self.close_button, "Закрытие окна рисования")
+        
+        self.size_label = Label(button_frame, text="Size:", font=(15))
+        self.size_label.pack(side=LEFT, padx=5)
+
+        self.size_scale = Scale(button_frame, 
+                                from_=1, to=20, 
+                                orient=HORIZONTAL,
+                                command=self.change_size)
+        self.size_scale.set(5) 
+        self.size_scale.pack(side=LEFT, padx=10, pady=(0,17))
+
+        ButtonDescription(self.size_scale, "Изменение толщины кисти")
         

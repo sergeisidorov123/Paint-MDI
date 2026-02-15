@@ -9,6 +9,9 @@ class Painter:
         
         self.last_x = None
         self.last_y = None
+        
+    def set_tool(self, new_tool):
+        pass
 
     def set_color(self, new_color):
         self.color = new_color
@@ -24,7 +27,7 @@ class Painter:
     def paint(self, x, y):
         """Основной метод рисования"""
         if self.last_x is not None and self.last_y is not None:
-            current_fill = self.color if self.tool == "brush" else "white"
+            current_fill = self.color if self.tool == "brush" else self.canvas["background"]
             
             self.canvas.create_line(
                 self.last_x, self.last_y, x, y,
