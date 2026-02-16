@@ -45,8 +45,10 @@ class PaintWindow:
         self.canvas = Canvas(self.window, bg="gray", highlightthickness=0)
         self.canvas.pack(expand=True, fill=BOTH)
         
+        self.paper_fill = "white"
+        
         self.paper_bg = self.canvas.create_rectangle(
-            0, 0, self.paper_width, self.paper_height, fill="white", outline=""
+            0, 0, self.paper_width, self.paper_height, fill=self.paper_fill, outline=""
         )
         self.paper_outline = self.canvas.create_rectangle(
             0, 0, self.paper_width, self.paper_height, fill="", outline="black"
@@ -149,6 +151,11 @@ class PaintWindow:
         color_code = colorchooser.askcolor(parent=self.window)
         if color_code[1]:
             self.painter.set_color(color_code[1])
+    
+    def change_paper_color(self):
+        """Изменяет цвет фона холста"""
+        self.paper_fill = colorchooser.askcolor(parent=self.window)[1]
+        self.canvas.itemconfig(self.paper_bg, fill=self.paper_fill)
     
     def paint(self, event):
         """Метод-обработчик событий мыши в окне"""
@@ -310,6 +317,11 @@ class PaintWindow:
                                   command=self.choose_color)
         self.color_button.pack(side=LEFT, padx=5)
         ButtonDescription(self.color_button, "Выбор цвета для рисования")
+        
+        self.paper_color_button = Button(button_frame, text="Choose Paper Color", 
+                                  command=self.change_paper_color)
+        self.paper_color_button.pack(side=LEFT, padx=5)
+        ButtonDescription(self.paper_color_button, "Выбор цвета фона холста")
         
         self.clear_button = Button(button_frame, text="Clear Canvas", 
                                   command=self.clear_canvas)
