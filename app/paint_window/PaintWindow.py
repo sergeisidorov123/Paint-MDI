@@ -28,11 +28,13 @@ class PaintWindow:
         self.file_name = ''
         self.file_path = ''
         
+        # Менять имя окна после открытия
         if self.file_name == "":
             self.window.title(f"Paint Window #{count.get_count()}")
         else:
             self.window.title(f"Paint Window - {self.file_name}")
-        self.window.geometry("800x600")
+        self.window.geometry("1000x800")
+        self.window.minsize(1000,800)
         
         self.window.resizable(True, True)
         
@@ -120,6 +122,8 @@ class PaintWindow:
             
             if file_path:
                 self.file_path = file_path
+                count.reduce_count()
+                self.window.title(f"Paint Window - {self.file_path.split('/')[-1]}")
                 self.is_saved = True
                 visible_region.save(file_path)
                 messagebox.showinfo("Success", 
@@ -136,6 +140,8 @@ class PaintWindow:
                 self.file_name = filename
                 if filename:
                     self.is_saved = True
+                    self.window.title(f"Paint Window - {self.file_name}")
+                    count.reduce_count()
                     self.saving()
                     
     def saving(self):
