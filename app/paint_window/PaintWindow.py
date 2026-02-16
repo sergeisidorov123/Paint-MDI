@@ -45,8 +45,11 @@ class PaintWindow:
         self.canvas = Canvas(self.window, bg="gray", highlightthickness=0)
         self.canvas.pack(expand=True, fill=BOTH)
         
-        self.paper = self.canvas.create_rectangle(
-            0, 0, self.paper_width, self.paper_height, fill="white", outline="black"
+        self.paper_bg = self.canvas.create_rectangle(
+            0, 0, self.paper_width, self.paper_height, fill="white", outline=""
+        )
+        self.paper_outline = self.canvas.create_rectangle(
+            0, 0, self.paper_width, self.paper_height, fill="", outline="black"
         )
 
         self.resizer_size = 6
@@ -89,8 +92,6 @@ class PaintWindow:
         self.canvas.bind("<Motion>", self.update_oval)
         self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
         
-        
-        
         self.window.protocol("WM_DELETE_WINDOW", self.close_window)
     
     def reset(self, event):
@@ -116,7 +117,11 @@ class PaintWindow:
         if mode == "both" or mode == "height":
             self.paper_height = max(10, event.y)
 
-        self.canvas.coords(self.paper, 0, 0, self.paper_width, self.paper_height)
+        try:
+            self.canvas.coords(self.paper_bg, 0, 0, self.paper_width, self.paper_height)
+            self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
+        except Exception:
+            pass
         self.update_resizers()
         self.resize_pillow_image()
     
@@ -133,7 +138,7 @@ class PaintWindow:
             self.painter.draw = self.draw
     
     def update_oval(self, event):
-        x, y = event.x, event.y
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
         r = self.painter.width / 2
         
         self.canvas.coords(self.cursor, x - r, y - r, x + r, y + r)
@@ -150,34 +155,49 @@ class PaintWindow:
         if self.is_closed:
             return
             
+        cx = self.canvas.canvasx(event.x)
+        cy = self.canvas.canvasy(event.y)
+
         self.painter.paint(
-            event.x, 
-            event.y, 
-            self.paper_width, 
-            self.paper_height, 
+            cx,
+            cy,
+            self.paper_width,
+            self.paper_height,
             getattr(self, 'is_resizing', False)
         )
         
-        # Обновляем визуальный курсор-кружок
         self.update_oval(event)
+
+        try:
+            self.canvas.tag_raise(self.paper_outline)
+            self.canvas.tag_raise("resizer")
+        except Exception:
+            pass
     
     def resize_canvas(self, event, mode="both"):
-        self.is_resizing = True  # ВКЛЮЧАЕМ режим изменения размера
+        self.is_resizing = True  
         
         if mode == "both" or mode == "width":
-            self.paper_width = max(10, event.x) # Ограничение мин. размера
+            self.paper_width = max(10, event.x) 
         if mode == "both" or mode == "height":
             self.paper_height = max(10, event.y)
 
-        self.canvas.coords(self.paper, 0, 0, self.paper_width, self.paper_height)
+        try:
+            self.canvas.coords(self.paper_bg, 0, 0, self.paper_width, self.paper_height)
+            self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
+        except Exception:
+            pass
         self.update_resizers()
         self.resize_pillow_image()
     
     def clear_canvas(self):
         """Очищает холст"""
         if not self.is_closed:
-            self.canvas.delete("all")
-            self.draw.rectangle([0, 0, self.canvas_width, self.canvas_height], fill=self.canvas["background"])
+            try:
+                self.canvas.delete("stroke")
+            except Exception:
+                pass
+            self.draw.rectangle([0, 0, int(self.paper_width), int(self.paper_height)], fill="white")
     
 
     def save_image_as(self, event=None):
