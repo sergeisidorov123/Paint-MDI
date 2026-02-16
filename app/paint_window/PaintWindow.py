@@ -30,7 +30,7 @@ class PaintWindow:
         
         self.canvas = Canvas(self.window, bg="white")
         self.canvas.pack(expand=True, fill=BOTH)
-         
+        
         self.canvas_width = 2000
         self.canvas_height = 2000
         self.canvas.configure(scrollregion=(0, 0, self.canvas_width, self.canvas_height))
@@ -55,8 +55,19 @@ class PaintWindow:
         self.canvas.bind("<B1-Motion>", self.paint)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
         
+        self.canvas.bind("<Motion>", self.update_oval)
+        self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
+        
         self.painter = Painter(self.canvas, self.draw)
         self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+    
+    def update_oval(self, event):
+        x, y = event.x, event.y
+        r = self.painter.width / 2
+        
+        self.canvas.coords(self.cursor, x - r, y - r, x + r, y + r)
+        
+        self.canvas.tag_raise("cursor")
     
     def choose_color(self):
         color_code = colorchooser.askcolor(parent=self.window)
@@ -66,6 +77,7 @@ class PaintWindow:
     def paint(self, event):
         if not self.is_closed:
             self.painter.paint(event.x, event.y)
+            self.update_oval(event)
     
     def reset(self, event):
         self.painter.reset_coords()

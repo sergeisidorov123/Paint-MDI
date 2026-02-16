@@ -1,3 +1,9 @@
+from tkinter import *
+from tkinter.ttk import Combobox
+from PIL import Image, ImageDraw
+from tkinter import colorchooser, messagebox, filedialog
+
+
 class Painter:
     def __init__(self, canvas, draw):
         self.canvas = canvas        
@@ -8,7 +14,7 @@ class Painter:
         self.tool = "brush"         
         
         self.last_x = None
-        self.last_y = None
+        self.last_y = None 
         
     def set_tool(self, new_tool):
         self.tool = new_tool
@@ -41,5 +47,7 @@ class Painter:
             )
             
         self.last_x, self.last_y = x, y
+        
+        
         
   
