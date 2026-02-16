@@ -1,7 +1,8 @@
 from tkinter import *
+import tkinter as tk
 from tkinter.ttk import Combobox
 from PIL import Image, ImageDraw
-from tkinter import colorchooser, messagebox, filedialog
+from tkinter import colorchooser, messagebox, filedialog, simpledialog
 import time
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
@@ -58,6 +59,7 @@ class PaintWindow:
         self.canvas.bind("<Motion>", self.update_oval)
         self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
         
+        
         self.painter = Painter(self.canvas, self.draw)
         self.window.protocol("WM_DELETE_WINDOW", self.close_window)
     
@@ -89,7 +91,7 @@ class PaintWindow:
             self.draw.rectangle([0, 0, self.canvas_width, self.canvas_height], fill=self.canvas["background"])
     
     def save_image_as(self, event=None):
-        """Сохраняет ТО, ЧТО ВИДИТ ПОЛЬЗОВАТЕЛЬ"""
+        """Сохранение как..."""
         if not self.is_closed:
             self.visible_x = self.canvas.canvasx(0)
             self.visible_y = self.canvas.canvasy(0)
@@ -110,6 +112,27 @@ class PaintWindow:
             )
             
             if file_path:
+                visible_region.save(file_path)
+                messagebox.showinfo("Success", 
+                                   f"Image saved in \n{file_path}", 
+                                   parent=self.window)
+    
+    def save_image(self):
+        """Сохранение"""
+        if not self.is_closed:
+            self.visible_x = self.canvas.canvasx(0)
+            self.visible_y = self.canvas.canvasy(0)
+            
+            visible_region = self.image.crop((
+                int(self.visible_x),
+                int(self.visible_y),
+                int(self.visible_x + self.visible_width),
+                int(self.visible_y + self.visible_height)
+            ))
+            
+            filename = simpledialog.askstring("Save Image", "Enter filename to save:", parent=self.window)
+            if filename:
+                file_path = f"{filename}.png"
                 visible_region.save(file_path)
                 messagebox.showinfo("Success", 
                                    f"Image saved in \n{file_path}", 
@@ -155,11 +178,16 @@ class PaintWindow:
         self.clear_button.pack(side=LEFT, padx=5)
         ButtonDescription(self.clear_button, "Очистка холста")
         
-        self.save_button = Button(button_frame, text="Save Image", 
+        self.save_button_as = Button(button_frame, text="Save Image as...", 
                                  command=self.save_image_as)
+        self.save_button_as.pack(side=LEFT, padx=5)
+        ButtonDescription(self.save_button_as, "Сохранение изображения как...")
+        
+        self.save_button = Button(button_frame, text="Save Image", 
+                                 command=self.save_image)
         self.save_button.pack(side=LEFT, padx=5)
         ButtonDescription(self.save_button, "Сохранение изображения")
-        
+
         self.close_button = Button(button_frame, text="Close Window", 
                                   command=self.close_window)
         self.close_button.pack(side=LEFT, padx=5)
