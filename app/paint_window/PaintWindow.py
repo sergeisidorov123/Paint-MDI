@@ -29,6 +29,9 @@ class PaintWindow:
         self.file_name = ''
         self.file_path = ''
         
+        self.paper_width = 400
+        self.paper_height = 300
+        
         # Менять имя окна после открытия
         if self.file_name == "":
             self.window.title(f"Paint Window #{count.get_count()}")
@@ -39,8 +42,23 @@ class PaintWindow:
         
         self.window.resizable(True, True)
         
-        self.canvas = Canvas(self.window, bg="white")
+        self.canvas = Canvas(self.window, bg="gray", highlightthickness=0)
         self.canvas.pack(expand=True, fill=BOTH)
+        
+        self.paper = self.canvas.create_rectangle(
+            0, 0, self.paper_width, self.paper_height, fill="white", outline="black"
+        )
+
+        self.resizer_size = 6
+        self.right_resizer = self.canvas.create_rectangle(0,0,0,0, fill="white", outline="black", tags="resizer")
+        self.bottom_resizer = self.canvas.create_rectangle(0,0,0,0, fill="white", outline="black", tags="resizer")
+        self.corner_resizer = self.canvas.create_rectangle(0,0,0,0, fill="white", outline="black", tags="resizer")
+
+        self.update_resizers()
+
+        self.canvas.tag_bind(self.corner_resizer, "<B1-Motion>", self.resize_canvas)
+        self.canvas.tag_bind(self.right_resizer, "<B1-Motion>", lambda e: self.resize_canvas(e, mode="width"))
+        self.canvas.tag_bind(self.bottom_resizer, "<B1-Motion>", lambda e: self.resize_canvas(e, mode="height"))
         
         self.canvas_width = 2000
         self.canvas_height = 2000
@@ -55,6 +73,7 @@ class PaintWindow:
         self.visible_height = 500
         
         self.canvas.bind("<Configure>", self.on_canvas_configure)
+        self.painter = Painter(self.canvas, self.draw)
         
         self.__buttons_create()
         
@@ -71,8 +90,47 @@ class PaintWindow:
         self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
         
         
-        self.painter = Painter(self.canvas, self.draw)
+        
         self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+    
+    def reset(self, event):
+        """Сбрасывает флаги и координаты после рисования или изменения размера"""
+        self.is_resizing = False 
+        if hasattr(self, 'painter'):
+            self.painter.reset_coords()
+            
+    def update_resizers(self):
+        """Перерисовывает маркеры в углах холста"""
+        w, h = self.paper_width, self.paper_height
+        s = self.resizer_size
+        
+        self.canvas.coords(self.right_resizer, w, h/2 - s, w + s, h/2 + s)
+        self.canvas.coords(self.bottom_resizer, w/2 - s, h, w/2 + s, h + s)
+        self.canvas.coords(self.corner_resizer, w, h, w + s, h + s)
+
+    def resize_canvas(self, event, mode="both"):
+        self.is_resizing = True  
+        
+        if mode == "both" or mode == "width":
+            self.paper_width = max(10, event.x) 
+        if mode == "both" or mode == "height":
+            self.paper_height = max(10, event.y)
+
+        self.canvas.coords(self.paper, 0, 0, self.paper_width, self.paper_height)
+        self.update_resizers()
+        self.resize_pillow_image()
+    
+    def resize_pillow_image(self):
+        """Синхронизирует Pillow Image с новым размером холста"""
+        w, h = int(self.paper_width), int(self.paper_height)
+        
+        if w > self.image.width or h > self.image.height:
+            new_image = Image.new("RGB", (w, h), "white")
+            new_image.paste(self.image, (0, 0))
+            self.image = new_image
+            self.draw = ImageDraw.Draw(self.image)
+            
+            self.painter.draw = self.draw
     
     def update_oval(self, event):
         x, y = event.x, event.y
@@ -88,12 +146,32 @@ class PaintWindow:
             self.painter.set_color(color_code[1])
     
     def paint(self, event):
-        if not self.is_closed:
-            self.painter.paint(event.x, event.y)
-            self.update_oval(event)
+        """Метод-обработчик событий мыши в окне"""
+        if self.is_closed:
+            return
+            
+        self.painter.paint(
+            event.x, 
+            event.y, 
+            self.paper_width, 
+            self.paper_height, 
+            getattr(self, 'is_resizing', False)
+        )
+        
+        # Обновляем визуальный курсор-кружок
+        self.update_oval(event)
     
-    def reset(self, event):
-        self.painter.reset_coords()
+    def resize_canvas(self, event, mode="both"):
+        self.is_resizing = True  # ВКЛЮЧАЕМ режим изменения размера
+        
+        if mode == "both" or mode == "width":
+            self.paper_width = max(10, event.x) # Ограничение мин. размера
+        if mode == "both" or mode == "height":
+            self.paper_height = max(10, event.y)
+
+        self.canvas.coords(self.paper, 0, 0, self.paper_width, self.paper_height)
+        self.update_resizers()
+        self.resize_pillow_image()
     
     def clear_canvas(self):
         """Очищает холст"""
@@ -103,29 +181,21 @@ class PaintWindow:
     
 
     def save_image_as(self, event=None):
-        """Сохранение текущей видимой области холста в файл"""
+        """Сохранение холста (от 0,0 до границ маркеров)"""
         if self.is_closed:
             return
 
-        self.visible_x = self.canvas.canvasx(0)
-        self.visible_y = self.canvas.canvasy(0)
-        
-        visible_region = self.image.crop((
-            int(self.visible_x),
-            int(self.visible_y),
-            int(self.visible_x + self.visible_width),
-            int(self.visible_y + self.visible_height)
-        ))
+        final_save = self.image.crop((0, 0, self.paper_width, self.paper_height))
 
         default_name = f"paint_{time.strftime('%Y%m%d_%H%M%S')}"
 
         file_path = filedialog.asksaveasfilename(
-            defaultextension="",
+            defaultextension=".png",
             initialfile=default_name,
             filetypes=[
                 ("PNG files", "*.png"),
+                ("JPEG files", "*.jpg;*.jpeg"),
                 ("BMP files", "*.bmp"),
-                ("JPEG files", "*.jpg"),
                 ("All files", "*.*")
             ],
             parent=self.window
@@ -136,9 +206,9 @@ class PaintWindow:
                 ext = os.path.splitext(file_path)[1].lower()
                 
                 if ext in ['.jpg', '.jpeg']:
-                    save_img = visible_region.convert("RGB")
+                    save_img = final_save.convert("RGB")
                 else:
-                    save_img = visible_region
+                    save_img = final_save
 
                 save_img.save(file_path)
                 
@@ -154,34 +224,38 @@ class PaintWindow:
                 messagebox.showerror("Error", f"Failed to save image:\n{e}", parent=self.window)
     
     def save_image(self, event=None):
-        """Сохранение"""
-        if not self.is_closed:
-            if self.is_saved:
-                self.saving()
-            else:
-                filename = simpledialog.askstring("Save Image", "Enter filename to save:", parent=self.window)
-                self.file_name = filename
-                if filename:
-                    self.is_saved = True
-                    self.window.title(f"Paint Window - {self.file_name}")
-                    self.saving()
-                    
+        """Быстрое сохранение (Ctrl+S)"""
+        if self.is_closed:
+            return
+
+        if self.file_path:
+            self.saving()
+        else:
+            self.save_image_as()
+
     def saving(self):
-        file_path = self.file_path if self.file_path != "" else f"{self.file_name}.png"
-        self.visible_x = self.canvas.canvasx(0)
-        self.visible_y = self.canvas.canvasy(0)
-        
-        visible_region = self.image.crop((
-            int(self.visible_x),
-            int(self.visible_y),
-            int(self.visible_x + self.visible_width),
-            int(self.visible_y + self.visible_height)
-        ))
-        
-        visible_region.save(file_path)
-        messagebox.showinfo("Success", 
-                        f"Image saved in \n{file_path}", 
-                        parent=self.window)
+        """Технический процесс записи данных в файл по текущему пути"""
+        try:
+            final_save = self.image.crop((0, 0, self.paper_width, self.paper_height))
+            
+            ext = os.path.splitext(self.file_path)[1].lower()
+            
+            if ext in ['.jpg', '.jpeg']:
+                img_to_write = final_save.convert("RGB")
+            else:
+                img_to_write = final_save
+
+            img_to_write.save(self.file_path)
+            
+            file_name = os.path.basename(self.file_path)
+            self.window.title(f"Paint Window - {file_name}")
+            
+            messagebox.showinfo("Success", 
+                            f"Image saved in \n{self.file_path}", 
+                            parent=self.window)
+            
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=self.window)
 
     def close_window(self, event=None):
         """Закрывает текущее окно"""
