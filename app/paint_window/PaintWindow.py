@@ -1,3 +1,4 @@
+import os
 from tkinter import *
 import tkinter as tk
 from tkinter.ttk import Combobox
@@ -100,35 +101,57 @@ class PaintWindow:
             self.canvas.delete("all")
             self.draw.rectangle([0, 0, self.canvas_width, self.canvas_height], fill=self.canvas["background"])
     
+
     def save_image_as(self, event=None):
-        """Сохранение как..."""
-        if not self.is_closed:
-            self.visible_x = self.canvas.canvasx(0)
-            self.visible_y = self.canvas.canvasy(0)
-            
-            visible_region = self.image.crop((
-                int(self.visible_x),
-                int(self.visible_y),
-                int(self.visible_x + self.visible_width),
-                int(self.visible_y + self.visible_height)
-            ))
-            filename = f"paint_{time.strftime('%Y%m%d_%H%M%S')}.png"
-            file_path = filedialog.asksaveasfilename(
-                defaultextension=".png",
-                filetypes=[("PNG files", "*.png"), ("All files", "*.*")],
-                initialfile=filename,
-                parent=self.window
-            )
-            
-            if file_path:
+        """Сохранение текущей видимой области холста в файл"""
+        if self.is_closed:
+            return
+
+        self.visible_x = self.canvas.canvasx(0)
+        self.visible_y = self.canvas.canvasy(0)
+        
+        visible_region = self.image.crop((
+            int(self.visible_x),
+            int(self.visible_y),
+            int(self.visible_x + self.visible_width),
+            int(self.visible_y + self.visible_height)
+        ))
+
+        default_name = f"paint_{time.strftime('%Y%m%d_%H%M%S')}"
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension="",
+            initialfile=default_name,
+            filetypes=[
+                ("PNG files", "*.png"),
+                ("BMP files", "*.bmp"),
+                ("JPEG files", "*.jpg"),
+                ("All files", "*.*")
+            ],
+            parent=self.window
+        )
+        
+        if file_path:
+            try:
+                ext = os.path.splitext(file_path)[1].lower()
+                
+                if ext in ['.jpg', '.jpeg']:
+                    save_img = visible_region.convert("RGB")
+                else:
+                    save_img = visible_region
+
+                save_img.save(file_path)
+                
                 self.file_path = file_path
-                count.reduce_count()
-                self.window.title(f"Paint Window - {self.file_path.split('/')[-1]}")
                 self.is_saved = True
-                visible_region.save(file_path)
-                messagebox.showinfo("Success", 
-                                   f"Image saved in \n{file_path}", 
-                                   parent=self.window)
+                
+                file_name = os.path.basename(file_path)
+                self.window.title(f"Paint Window - {file_name}")
+                
+                messagebox.showinfo("Success", f"Image saved successfully:\n{file_path}", parent=self.window)
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save image:\n{e}", parent=self.window)
     
     def save_image(self, event=None):
         """Сохранение"""
@@ -141,7 +164,6 @@ class PaintWindow:
                 if filename:
                     self.is_saved = True
                     self.window.title(f"Paint Window - {self.file_name}")
-                    count.reduce_count()
                     self.saving()
                     
     def saving(self):
