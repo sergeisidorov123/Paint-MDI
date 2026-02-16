@@ -117,7 +117,6 @@ class PaintWindow:
         """Обновляет размеры бумаги при перетаскивании маркеров"""
         self.is_resizing = True
 
-        # Remember previous paper size so we can scale existing canvas strokes
         old_w, old_h = float(self.paper_width), float(self.paper_height)
 
         if mode == "both" or mode == "width":
@@ -133,7 +132,6 @@ class PaintWindow:
         except Exception:
             pass
 
-        # Scale all stroke items on the canvas so they stay aligned with paper
         try:
             sx = new_w / old_w if old_w else 1.0
             sy = new_h / old_h if old_h else 1.0
@@ -157,12 +155,11 @@ class PaintWindow:
     def resize_pillow_image(self):
         """Синхронизирует / масштабирует Pillow Image и отображение под текущий размер бумаги."""
         w, h = int(self.paper_width), int(self.paper_height)
-
         if w <= 0 or h <= 0:
             return
 
         try:
-            # Resize underlying Pillow image to paper size so edits map correctly
+            self.is_updated = True
             if (w, h) != self.image.size:
                 try:
                     self.image = self.image.resize((w, h), Image.LANCZOS)
@@ -171,7 +168,6 @@ class PaintWindow:
                 self.draw = ImageDraw.Draw(self.image)
                 self.painter.draw = self.draw
 
-            # Update displayed PhotoImage
             self.tk_image = ImageTk.PhotoImage(self.image)
             if self.bg_image_id:
                 self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
@@ -196,6 +192,7 @@ class PaintWindow:
     
     def change_paper_color(self):
         """Изменяет цвет фона холста"""
+        self.is_updated = True
         self.paper_fill = colorchooser.askcolor(parent=self.window)[1]
         self.canvas.itemconfig(self.paper_bg, fill=self.paper_fill)
     
@@ -206,12 +203,11 @@ class PaintWindow:
         cx = self.canvas.canvasx(event.x)
         cy = self.canvas.canvasy(event.y)
 
-        # If the pointer is over a resizer item, handle resize instead of drawing.
         try:
+            self.is_updated = True
             items = self.canvas.find_overlapping(cx, cy, cx, cy)
             for it in items:
                 if "resizer" in self.canvas.gettags(it):
-                    # Determine mode based on which resizer was hit
                     mode = "both"
                     if it == self.right_resizer:
                         mode = "width"
@@ -221,7 +217,6 @@ class PaintWindow:
                     self.is_resizing = True
                     evt = type("E", (), {"x": int(cx), "y": int(cy)})()
                     self.resize_canvas(evt, mode=mode)
-                    # update cursor and outline stacking, then return
                     self.update_oval(event)
                     try:
                         self.canvas.tag_raise(self.paper_outline)
@@ -233,7 +228,6 @@ class PaintWindow:
         except Exception:
             pass
 
-        # Normal painting
         self.painter.paint(
             cx,
             cy,
@@ -255,6 +249,7 @@ class PaintWindow:
     
     def clear_canvas(self):
         """Очищает холст"""
+        self.is_updated = True
         if not self.is_closed:
             try:
                 self.canvas.delete("stroke")
@@ -310,7 +305,6 @@ class PaintWindow:
         """Быстрое сохранение (Ctrl+S)"""
         if self.is_closed:
             return
-
         if self.file_path:
             self.saving()
         else:
@@ -341,9 +335,25 @@ class PaintWindow:
             messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=self.window)
 
     def close_window(self, event=None):
-        """Закрывает текущее окно"""
+        """Закрывает текущее окно с проверкой сохранения"""
+        if self.is_updated and not self.is_saved:
+            ans = messagebox.askyesnocancel(
+                "Unsaved Changes", 
+                "You have unsaved changes. Do you want to save before exiting?", 
+                parent=self.window
+            )
+            
+            if ans is True: 
+                self.save_image()
+            elif ans is None: 
+                return 
+        
         count.reduce_count()
         self.is_closed = True
+        
+        if count.get_count() == 0:
+            self.window.quit() 
+        
         self.window.destroy()
     
     def on_closing(self):
