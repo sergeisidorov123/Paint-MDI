@@ -11,7 +11,7 @@ class Painter:
         self.last_y = None
         
     def set_tool(self, new_tool):
-        pass
+        self.tool = new_tool
 
     def set_color(self, new_color):
         self.color = new_color

@@ -1,4 +1,5 @@
 from tkinter import *
+from tkinter.ttk import Combobox
 from PIL import Image, ImageDraw
 from tkinter import colorchooser, messagebox, filedialog
 import time
@@ -164,3 +165,9 @@ class PaintWindow:
 
         ButtonDescription(self.size_scale, "Изменение толщины кисти")
         
+        self.brush_combo = Combobox(button_frame, values=["brush", "eraser"], state="readonly")
+        
+        self.brush_combo.current(0)
+        self.brush_combo.pack(side=LEFT, padx=5)
+        self.brush_combo.bind("<<ComboboxSelected>>", lambda e: self.painter.set_tool(self.brush_combo.get()))
+        ButtonDescription(self.brush_combo, "Выбор инструмента: кисть или ластик")
