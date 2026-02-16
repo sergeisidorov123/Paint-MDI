@@ -2,12 +2,12 @@ import os
 from tkinter import *
 import tkinter as tk
 from tkinter.ttk import Combobox
-from PIL import Image, ImageDraw
 from tkinter import colorchooser, messagebox, filedialog, simpledialog
 import time
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
 from .Painter import Painter
+from PIL import Image, ImageDraw, ImageTk
 
 count = WindowCounter()
         
@@ -37,8 +37,8 @@ class PaintWindow:
             self.window.title(f"Paint Window #{count.get_count()}")
         else:
             self.window.title(f"Paint Window - {self.file_name}")
-        self.window.geometry("1000x800")
-        self.window.minsize(1000,800)
+        self.window.geometry("1200x800")
+        self.window.minsize(1200,800)
         
         self.window.resizable(True, True)
         
@@ -71,6 +71,8 @@ class PaintWindow:
         
         self.image = Image.new("RGB", (self.canvas_width, self.canvas_height), "white")
         self.draw = ImageDraw.Draw(self.image)
+        self.tk_image = None
+        self.bg_image_id = None
         
         self.visible_x = 0
         self.visible_y = 0
@@ -110,34 +112,74 @@ class PaintWindow:
         self.canvas.coords(self.right_resizer, w, h/2 - s, w + s, h/2 + s)
         self.canvas.coords(self.bottom_resizer, w/2 - s, h, w/2 + s, h + s)
         self.canvas.coords(self.corner_resizer, w, h, w + s, h + s)
-
-    def resize_canvas(self, event, mode="both"):
-        self.is_resizing = True  
         
+    def resize_canvas(self, event, mode="both"):
+        """Обновляет размеры бумаги при перетаскивании маркеров"""
+        self.is_resizing = True
+
+        # Remember previous paper size so we can scale existing canvas strokes
+        old_w, old_h = float(self.paper_width), float(self.paper_height)
+
         if mode == "both" or mode == "width":
-            self.paper_width = max(10, event.x) 
+            self.paper_width = max(10, event.x)
         if mode == "both" or mode == "height":
             self.paper_height = max(10, event.y)
+
+        new_w, new_h = float(self.paper_width), float(self.paper_height)
 
         try:
             self.canvas.coords(self.paper_bg, 0, 0, self.paper_width, self.paper_height)
             self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
         except Exception:
             pass
+
+        # Scale all stroke items on the canvas so they stay aligned with paper
+        try:
+            sx = new_w / old_w if old_w else 1.0
+            sy = new_h / old_h if old_h else 1.0
+            for item in self.canvas.find_withtag("stroke"):
+                coords = self.canvas.coords(item)
+                if not coords:
+                    continue
+                new_coords = []
+                for i, v in enumerate(coords):
+                    if i % 2 == 0:
+                        new_coords.append(v * sx)
+                    else:
+                        new_coords.append(v * sy)
+                self.canvas.coords(item, *new_coords)
+        except Exception:
+            pass
+
         self.update_resizers()
         self.resize_pillow_image()
-    
+
     def resize_pillow_image(self):
-        """Синхронизирует Pillow Image с новым размером холста"""
+        """Синхронизирует / масштабирует Pillow Image и отображение под текущий размер бумаги."""
         w, h = int(self.paper_width), int(self.paper_height)
-        
-        if w > self.image.width or h > self.image.height:
-            new_image = Image.new("RGB", (w, h), "white")
-            new_image.paste(self.image, (0, 0))
-            self.image = new_image
-            self.draw = ImageDraw.Draw(self.image)
-            
-            self.painter.draw = self.draw
+
+        if w <= 0 or h <= 0:
+            return
+
+        try:
+            # Resize underlying Pillow image to paper size so edits map correctly
+            if (w, h) != self.image.size:
+                try:
+                    self.image = self.image.resize((w, h), Image.LANCZOS)
+                except Exception:
+                    self.image = self.image.resize((w, h))
+                self.draw = ImageDraw.Draw(self.image)
+                self.painter.draw = self.draw
+
+            # Update displayed PhotoImage
+            self.tk_image = ImageTk.PhotoImage(self.image)
+            if self.bg_image_id:
+                self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
+            else:
+                self.bg_image_id = self.canvas.create_image(0, 0, anchor=NW, image=self.tk_image, tags="bg_image")
+                self.canvas.tag_lower("bg_image")
+        except Exception:
+            pass
     
     def update_oval(self, event):
         x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
@@ -161,10 +203,37 @@ class PaintWindow:
         """Метод-обработчик событий мыши в окне"""
         if self.is_closed:
             return
-            
         cx = self.canvas.canvasx(event.x)
         cy = self.canvas.canvasy(event.y)
 
+        # If the pointer is over a resizer item, handle resize instead of drawing.
+        try:
+            items = self.canvas.find_overlapping(cx, cy, cx, cy)
+            for it in items:
+                if "resizer" in self.canvas.gettags(it):
+                    # Determine mode based on which resizer was hit
+                    mode = "both"
+                    if it == self.right_resizer:
+                        mode = "width"
+                    elif it == self.bottom_resizer:
+                        mode = "height"
+
+                    self.is_resizing = True
+                    evt = type("E", (), {"x": int(cx), "y": int(cy)})()
+                    self.resize_canvas(evt, mode=mode)
+                    # update cursor and outline stacking, then return
+                    self.update_oval(event)
+                    try:
+                        self.canvas.tag_raise(self.paper_outline)
+                        self.canvas.tag_raise("resizer")
+                        self.canvas.tag_raise("cursor")
+                    except Exception:
+                        pass
+                    return
+        except Exception:
+            pass
+
+        # Normal painting
         self.painter.paint(
             cx,
             cy,
@@ -172,30 +241,17 @@ class PaintWindow:
             self.paper_height,
             getattr(self, 'is_resizing', False)
         )
-        
+
         self.update_oval(event)
 
         try:
             self.canvas.tag_raise(self.paper_outline)
             self.canvas.tag_raise("resizer")
+            self.canvas.tag_raise("cursor")
         except Exception:
             pass
     
-    def resize_canvas(self, event, mode="both"):
-        self.is_resizing = True  
-        
-        if mode == "both" or mode == "width":
-            self.paper_width = max(10, event.x) 
-        if mode == "both" or mode == "height":
-            self.paper_height = max(10, event.y)
-
-        try:
-            self.canvas.coords(self.paper_bg, 0, 0, self.paper_width, self.paper_height)
-            self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
-        except Exception:
-            pass
-        self.update_resizers()
-        self.resize_pillow_image()
+    
     
     def clear_canvas(self):
         """Очищает холст"""
@@ -308,6 +364,49 @@ class PaintWindow:
     def change_size(self, new_size):
         self.painter.set_width(int(new_size))
         
+    def open_image(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.gif"), ("All files", "*.*")],
+            parent=self.window
+        )
+        
+        if file_path:
+            try:
+                opened_image = Image.open(file_path)
+                self.image = opened_image.convert("RGB")
+                self.draw = ImageDraw.Draw(self.image)
+                
+                self.paper_width, self.paper_height = self.image.size
+            
+                self.canvas.delete("stroke") 
+                self.canvas.delete("bg_image")
+
+                self.tk_image = ImageTk.PhotoImage(self.image)
+                if self.bg_image_id:
+                    self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
+                else:
+                    self.bg_image_id = self.canvas.create_image(0, 0, anchor=NW, image=self.tk_image, tags="bg_image")
+                self.canvas.tag_lower("bg_image")
+
+                try:
+                    self.canvas.itemconfig(self.paper_bg, fill="")
+                except Exception:
+                    pass
+
+                self.canvas.coords(self.paper_bg, 0, 0, self.paper_width, self.paper_height)
+                self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
+                self.update_resizers()
+                
+                self.canvas.tag_raise("resizer")
+                self.canvas.tag_raise("cursor")
+
+                self.painter.draw = self.draw
+                self.file_path = file_path
+                self.window.title(f"Paint Window - {os.path.basename(file_path)}")
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not open image:\n{e}")
+            
     def __buttons_create(self):
         """Создает кнопки для управления окном рисования"""
         button_frame = Frame(self.window)
@@ -337,6 +436,10 @@ class PaintWindow:
                                  command=self.save_image)
         self.save_button.pack(side=LEFT, padx=5)
         ButtonDescription(self.save_button, "Сохранение изображения")
+        
+        self.open_button = Button(button_frame, text="Open Image", 
+                                  command=self.open_image)
+        self.open_button.pack(side=LEFT, padx=5)
 
         self.close_button = Button(button_frame, text="Close Window", 
                                   command=self.close_window)
