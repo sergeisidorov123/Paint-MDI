@@ -22,10 +22,17 @@ class PaintWindow:
             self.window = Tk()
             self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        self.window.title(f"Paint Window #{count.get_count()}")
-        self.window.geometry("800x600")
-        
         self.is_closed = False
+        self.is_saved = False
+        self.is_updated = False
+        self.file_name = ''
+        self.file_path = ''
+        
+        if self.file_name == "":
+            self.window.title(f"Paint Window #{count.get_count()}")
+        else:
+            self.window.title(f"Paint Window - {self.file_name}")
+        self.window.geometry("800x600")
         
         self.window.resizable(True, True)
         
@@ -51,6 +58,7 @@ class PaintWindow:
         #binds
         self.window.bind("<Control-w>", self.close_window)
         self.window.bind("<Control-x>", self.save_image_as)
+        self.window.bind("<Control-s>", self.save_image)
         
         
         self.canvas.bind("<B1-Motion>", self.paint)
@@ -102,7 +110,6 @@ class PaintWindow:
                 int(self.visible_x + self.visible_width),
                 int(self.visible_y + self.visible_height)
             ))
-            
             filename = f"paint_{time.strftime('%Y%m%d_%H%M%S')}.png"
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".png",
@@ -112,33 +119,42 @@ class PaintWindow:
             )
             
             if file_path:
+                self.file_path = file_path
+                self.is_saved = True
                 visible_region.save(file_path)
                 messagebox.showinfo("Success", 
                                    f"Image saved in \n{file_path}", 
                                    parent=self.window)
     
-    def save_image(self):
+    def save_image(self, event=None):
         """Сохранение"""
         if not self.is_closed:
-            self.visible_x = self.canvas.canvasx(0)
-            self.visible_y = self.canvas.canvasy(0)
-            
-            visible_region = self.image.crop((
-                int(self.visible_x),
-                int(self.visible_y),
-                int(self.visible_x + self.visible_width),
-                int(self.visible_y + self.visible_height)
-            ))
-            
-            filename = simpledialog.askstring("Save Image", "Enter filename to save:", parent=self.window)
-            if filename:
-                file_path = f"{filename}.png"
-                visible_region.save(file_path)
-                messagebox.showinfo("Success", 
-                                   f"Image saved in \n{file_path}", 
-                                   parent=self.window)
-    
-    
+            if self.is_saved:
+                self.saving()
+            else:
+                filename = simpledialog.askstring("Save Image", "Enter filename to save:", parent=self.window)
+                self.file_name = filename
+                if filename:
+                    self.is_saved = True
+                    self.saving()
+                    
+    def saving(self):
+        file_path = self.file_path if self.file_path != "" else f"{self.file_name}.png"
+        self.visible_x = self.canvas.canvasx(0)
+        self.visible_y = self.canvas.canvasy(0)
+        
+        visible_region = self.image.crop((
+            int(self.visible_x),
+            int(self.visible_y),
+            int(self.visible_x + self.visible_width),
+            int(self.visible_y + self.visible_height)
+        ))
+        
+        visible_region.save(file_path)
+        messagebox.showinfo("Success", 
+                        f"Image saved in \n{file_path}", 
+                        parent=self.window)
+
     def close_window(self, event=None):
         """Закрывает текущее окно"""
         count.reduce_count()
