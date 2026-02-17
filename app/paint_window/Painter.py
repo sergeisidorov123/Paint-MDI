@@ -4,10 +4,11 @@ import math
 
 
 class Painter:
-    def __init__(self, canvas, draw: ImageDraw.ImageDraw):
+    def __init__(self, canvas, draw: ImageDraw.ImageDraw, paper_fill):
         self.canvas = canvas
         self.draw = draw
-
+        self.paper_fill = paper_fill
+        
         self.color = "black"
         self.width = 5
         self.tool = "brush"  
@@ -51,7 +52,7 @@ class Painter:
         x = int(x)
         y = int(y)
 
-        color = "white" if self.tool == "eraser" else self.color
+        color = self.paper_fill if self.tool == "eraser" else self.color
 
         if self.last_x is None or self.last_y is None:
             r = max(1, self.width / 2)

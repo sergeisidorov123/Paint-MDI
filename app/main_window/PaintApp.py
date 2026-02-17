@@ -12,6 +12,8 @@ class PaintApp:
     def __init__(self):
         """Создает главное окно приложения"""
         self.root = Tk()
+        #self.notebook = ttk.Notebook(self.root)
+        #self.notebook.pack(expand=True, fill="both")
         self.root.title("Paint Application")
         self.root.geometry("400x300")
         

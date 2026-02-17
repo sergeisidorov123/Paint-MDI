@@ -7,7 +7,7 @@ import time
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
 from .Painter import Painter
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageTk, ImageChops
 
 count = WindowCounter()
         
@@ -27,13 +27,13 @@ class PaintWindow:
         self.is_saved = False
         self.is_updated = False
         self.changes = False
+        self.changes_label = None
         self.file_name = ''
         self.file_path = ''
         
         self.paper_width = 400
         self.paper_height = 300
         
-        # Менять имя окна после открытия
         if self.file_name == "":
             self.window.title(f"Paint Window #{count.get_count()}")
         else:
@@ -74,6 +74,7 @@ class PaintWindow:
         self.draw = ImageDraw.Draw(self.image)
         self.tk_image = None
         self.bg_image_id = None
+        self.bg_loaded = False
         
         self.visible_x = 0
         self.visible_y = 0
@@ -81,7 +82,7 @@ class PaintWindow:
         self.visible_height = 500
         
         self.canvas.bind("<Configure>", self.on_canvas_configure)
-        self.painter = Painter(self.canvas, self.draw)
+        self.painter = Painter(self.canvas, self.draw, self.paper_fill)
         
         self.__buttons_create()
         
@@ -132,6 +133,10 @@ class PaintWindow:
             self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
         except Exception:
             pass
+        try:
+            self.resize_pillow_image()
+        except Exception:
+            pass
 
         try:
             sx = new_w / old_w if old_w else 1.0
@@ -151,7 +156,6 @@ class PaintWindow:
             pass
 
         self.update_resizers()
-        self.resize_pillow_image()
 
     def resize_pillow_image(self):
         """Синхронизирует / масштабирует Pillow Image и отображение под текущий размер бумаги."""
@@ -169,12 +173,21 @@ class PaintWindow:
                 self.draw = ImageDraw.Draw(self.image)
                 self.painter.draw = self.draw
 
-            self.tk_image = ImageTk.PhotoImage(self.image)
-            if self.bg_image_id:
-                self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
+            if getattr(self, 'bg_loaded', False):
+                self.tk_image = ImageTk.PhotoImage(self.image)
+                if self.bg_image_id:
+                    self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
+                else:
+                    self.bg_image_id = self.canvas.create_image(0, 0, anchor=NW, image=self.tk_image, tags="bg_image")
+                    self.canvas.tag_lower("bg_image")
             else:
-                self.bg_image_id = self.canvas.create_image(0, 0, anchor=NW, image=self.tk_image, tags="bg_image")
-                self.canvas.tag_lower("bg_image")
+                if self.bg_image_id:
+                    try:
+                        self.canvas.delete(self.bg_image_id)
+                    except Exception:
+                        pass
+                    self.bg_image_id = None
+                self.tk_image = None
         except Exception:
             pass
     
@@ -195,6 +208,7 @@ class PaintWindow:
         """Изменяет цвет фона холста"""
         self.is_updated = True
         self.paper_fill = colorchooser.askcolor(parent=self.window)[1]
+        self.painter = Painter(self.canvas, self.draw, self.paper_fill)
         self.canvas.itemconfig(self.paper_bg, fill=self.paper_fill)
     
     def paint(self, event):
@@ -268,7 +282,7 @@ class PaintWindow:
         if self.is_closed:
             return
 
-        final_save = self.image.crop((0, 0, self.paper_width, self.paper_height))
+        final_save = self.build_export_image()
 
         default_name = f"paint_{time.strftime('%Y%m%d_%H%M%S')}"
 
@@ -287,14 +301,32 @@ class PaintWindow:
         if file_path:
             try:
                 self.changes = False
-                self.changes_label.destroy()
-                self.changes_label = None   
+                if getattr(self, 'changes_label', None):
+                    try:
+                        self.changes_label.destroy()
+                    except Exception:
+                        pass
+                self.changes_label = None
+
+                to_save = final_save
+                try:
+                    if not self.bg_image_id and getattr(self, 'paper_fill', None):
+                        if self.paper_fill and self.paper_fill.lower() != "white":
+                            white = Image.new("RGB", to_save.size, (255, 255, 255))
+                            diff = ImageChops.difference(to_save, white)
+                            mask = diff.convert("L").point(lambda p: 255 if p > 0 else 0)
+                            bg = Image.new("RGB", to_save.size, self.paper_fill)
+                            bg.paste(to_save, (0, 0), mask)
+                            to_save = bg
+                except Exception:
+                    pass
+
                 ext = os.path.splitext(file_path)[1].lower()
-                
+
                 if ext == ".jpg":
-                    save_img = final_save.convert("RGB")
+                    save_img = to_save.convert("RGB")
                 else:
-                    save_img = final_save
+                    save_img = to_save
 
                 save_img.save(file_path)
                 
@@ -314,8 +346,12 @@ class PaintWindow:
         if self.is_closed:
             return
         self.changes = False
-        self.changes_label.destroy()
-        self.changes_label = None 
+        if getattr(self, 'changes_label', None):
+            try:
+                self.changes_label.destroy()
+            except Exception:
+                pass
+        self.changes_label = None
         if self.file_path:
             self.saving()
         else:
@@ -324,23 +360,32 @@ class PaintWindow:
     def saving(self):
         """Технический процесс записи данных в файл по текущему пути"""
         try:
-            final_save = self.image.crop((0, 0, self.paper_width, self.paper_height))
-            
+            final_save = self.build_export_image()
+            to_save = final_save
+            try:
+                if not self.bg_image_id and getattr(self, 'paper_fill', None):
+                    if self.paper_fill and self.paper_fill.lower() != "white":
+                        white = Image.new("RGB", to_save.size, (255, 255, 255))
+                        diff = ImageChops.difference(to_save, white)
+                        mask = diff.convert("L").point(lambda p: 255 if p > 0 else 0)
+                        bg = Image.new("RGB", to_save.size, self.paper_fill)
+                        bg.paste(to_save, (0, 0), mask)
+                        to_save = bg
+            except Exception:
+                pass
+
             ext = os.path.splitext(self.file_path)[1].lower()
-            
+
             if ext in ['.jpg', '.jpeg']:
-                img_to_write = final_save.convert("RGB")
+                img_to_write = to_save.convert("RGB")
             else:
-                img_to_write = final_save
+                img_to_write = to_save
 
             img_to_write.save(self.file_path)
             
             file_name = os.path.basename(self.file_path)
             self.window.title(f"Paint Window - {file_name}")
             
-            #messagebox.showinfo("Success", 
-            #                f"Image saved in \n{self.file_path}", 
-            #                parent=self.window)
             
         except Exception as e:
             messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=self.window)
@@ -402,6 +447,9 @@ class PaintWindow:
                 self.canvas.delete("stroke") 
                 self.canvas.delete("bg_image")
 
+
+                self.bg_loaded = True
+
                 self.tk_image = ImageTk.PhotoImage(self.image)
                 if self.bg_image_id:
                     self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
@@ -427,6 +475,46 @@ class PaintWindow:
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Could not open image:\n{e}")
+                
+    def build_export_image(self):
+        w, h = int(self.paper_width), int(self.paper_height)
+        if w <= 0 or h <= 0:
+            return Image.new("RGB", (1, 1), "white")
+        
+        try:
+            if getattr(self, 'bg_loaded', False) and hasattr(self, 'image') and self.image:
+                bg = self.image.resize((w, h))
+            else:
+                bg = Image.new("RGB", (w, h), self.paper_fill or "white")
+        except Exception:
+            bg = Image.new("RGB", (w, h), self.paper_fill or "white")
+
+        draw = ImageDraw.Draw(bg)
+
+        try:
+            for item in self.canvas.find_withtag("stroke"):
+                itype = self.canvas.type(item)
+                coords = self.canvas.coords(item)
+                if not coords:
+                    continue
+                pts = tuple(int(round(c)) for c in coords)
+
+                fill = self.canvas.itemcget(item, 'fill') or 'black'
+                width = int(float(self.canvas.itemcget(item, 'width') or 1))
+
+                if itype == 'line':
+                    draw.line(pts, fill=fill, width=width)
+                elif itype == 'oval':
+                    draw.ellipse(pts, fill=fill, outline=fill)
+                else:
+                    try:
+                        draw.line(pts, fill=fill, width=width)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        return bg
             
     def __buttons_create(self):
         """Создает кнопки для управления окном рисования"""
