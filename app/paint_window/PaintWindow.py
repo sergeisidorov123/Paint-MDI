@@ -26,6 +26,7 @@ class PaintWindow:
         self.is_closed = False
         self.is_saved = False
         self.is_updated = False
+        self.changes = False
         self.file_name = ''
         self.file_path = ''
         
@@ -202,9 +203,14 @@ class PaintWindow:
             return
         cx = self.canvas.canvasx(event.x)
         cy = self.canvas.canvasy(event.y)
-
+        
+        self.is_updated = True
+        if self.is_updated and not self.changes:
+            self.changes_label = Label(self.window, text="Changes not saved", font=(15))
+            self.changes_label.pack(side=LEFT, padx=5)
+            self.changes = True
+            
         try:
-            self.is_updated = True
             items = self.canvas.find_overlapping(cx, cy, cx, cy)
             for it in items:
                 if "resizer" in self.canvas.gettags(it):
@@ -237,7 +243,6 @@ class PaintWindow:
         )
 
         self.update_oval(event)
-
         try:
             self.canvas.tag_raise(self.paper_outline)
             self.canvas.tag_raise("resizer")
@@ -281,6 +286,9 @@ class PaintWindow:
         
         if file_path:
             try:
+                self.changes = False
+                self.changes_label.destroy()
+                self.changes_label = None   
                 ext = os.path.splitext(file_path)[1].lower()
                 
                 if ext == ".jpg":
@@ -305,6 +313,9 @@ class PaintWindow:
         """Быстрое сохранение (Ctrl+S)"""
         if self.is_closed:
             return
+        self.changes = False
+        self.changes_label.destroy()
+        self.changes_label = None 
         if self.file_path:
             self.saving()
         else:
@@ -327,9 +338,9 @@ class PaintWindow:
             file_name = os.path.basename(self.file_path)
             self.window.title(f"Paint Window - {file_name}")
             
-            messagebox.showinfo("Success", 
-                            f"Image saved in \n{self.file_path}", 
-                            parent=self.window)
+            #messagebox.showinfo("Success", 
+            #                f"Image saved in \n{self.file_path}", 
+            #                parent=self.window)
             
         except Exception as e:
             messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=self.window)
