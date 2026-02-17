@@ -272,7 +272,7 @@ class PaintWindow:
             initialfile=default_name,
             filetypes=[
                 ("PNG files", "*.png"),
-                ("JPEG files", "*.jpg;*.jpeg"),
+                ("JPEG files", "*.jpg"),
                 ("BMP files", "*.bmp"),
                 ("All files", "*.*")
             ],
@@ -283,7 +283,7 @@ class PaintWindow:
             try:
                 ext = os.path.splitext(file_path)[1].lower()
                 
-                if ext in ['.jpg', '.jpeg']:
+                if ext == ".jpg":
                     save_img = final_save.convert("RGB")
                 else:
                     save_img = final_save
