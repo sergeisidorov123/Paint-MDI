@@ -268,7 +268,7 @@ class PaintWindow:
         default_name = f"paint_{time.strftime('%Y%m%d_%H%M%S')}"
 
         file_path = filedialog.asksaveasfilename(
-            defaultextension=".png",
+            defaultextension="",
             initialfile=default_name,
             filetypes=[
                 ("PNG files", "*.png"),
