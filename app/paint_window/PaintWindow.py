@@ -177,7 +177,7 @@ class PaintWindow:
         try:
             if getattr(self, 'active_resize_mode', None):
                 evt = type('E', (), {'x': int(cx), 'y': int(cy)})()
-                self.resize_canvas(evt, mode=self.active_resize_mode)
+                self.resize_canvas(evt, mode=self.active_resize_mode, scale_content=False)
                 return
             items = self.canvas.find_overlapping(cx, cy, cx, cy)
             for it in items:
@@ -188,7 +188,7 @@ class PaintWindow:
                     elif it == self.bottom_resizer:
                         mode = 'height'
                     evt = type('E', (), {'x': int(cx), 'y': int(cy)})()
-                    self.resize_canvas(evt, mode=mode)
+                    self.resize_canvas(evt, mode=mode, scale_content=False)
                     return
         except Exception:
             pass
@@ -464,7 +464,7 @@ class PaintWindow:
         except Exception:
             pass
 
-    def resize_canvas(self, event, mode='both'):
+    def resize_canvas(self, event, mode='both', scale_content=True):
         self.is_resizing = True
         old_w, old_h = float(self.paper_width), float(self.paper_height)
         if mode in ('both', 'width'):
@@ -478,25 +478,49 @@ class PaintWindow:
         except Exception:
             pass
         try:
-            self.image_buffer.resize(int(self.paper_width), int(self.paper_height))
-            if self.bg_loaded:
-                self._refresh_bg_image()
-        except Exception:
-            pass
-        try:
-            sx = new_w / old_w if old_w else 1.0
-            sy = new_h / old_h if old_h else 1.0
-            for item in self.canvas.find_withtag('stroke'):
-                coords = self.canvas.coords(item)
-                if not coords:
-                    continue
-                new_coords = []
-                for i, v in enumerate(coords):
-                    if i % 2 == 0:
-                        new_coords.append(v * sx)
-                    else:
-                        new_coords.append(v * sy)
-                self.canvas.coords(item, *new_coords)
+            if scale_content:
+                try:
+                    self.image_buffer.resize(int(self.paper_width), int(self.paper_height))
+                except Exception:
+                    pass
+                if self.bg_loaded:
+                    self._refresh_bg_image()
+                try:
+                    sx = new_w / old_w if old_w else 1.0
+                    sy = new_h / old_h if old_h else 1.0
+                    for item in self.canvas.find_withtag('stroke'):
+                        coords = self.canvas.coords(item)
+                        if not coords:
+                            continue
+                        new_coords = []
+                        for i, v in enumerate(coords):
+                            if i % 2 == 0:
+                                new_coords.append(v * sx)
+                            else:
+                                new_coords.append(v * sy)
+                        self.canvas.coords(item, *new_coords)
+                except Exception:
+                    pass
+            else:
+                try:
+                    old_img = self.image_buffer.get_image()
+                    new_w_i, new_h_i = int(self.paper_width), int(self.paper_height)
+                    from PIL import Image as PILImage
+                    new_img = PILImage.new('RGB', (max(1, new_w_i), max(1, new_h_i)), self.paper_fill)
+                    try:
+                        new_img.paste(old_img, (0, 0))
+                    except Exception:
+                        try:
+                            cropped = old_img.crop((0, 0, new_w_i, new_h_i))
+                            new_img.paste(cropped, (0, 0))
+                        except Exception:
+                            pass
+                    self.image_buffer.image = new_img
+                    self.image_buffer.draw = ImageDraw.Draw(self.image_buffer.image)
+                    if self.bg_loaded:
+                        self._refresh_bg_image()
+                except Exception:
+                    pass
         except Exception:
             pass
         self.update_resizers()
@@ -741,13 +765,21 @@ class PaintWindow:
         bg = Image.new('RGB', (w, h), self.paper_fill or 'white')
         try:
             if self.bg_loaded and self.image_buffer:
-                try:
-                    buf = self.image_buffer.get_image()
-                    if buf.size != (w, h):
-                        buf = buf.resize((w, h))
-                    bg.paste(buf)
-                except Exception:
-                    pass
+                    try:
+                        buf = self.image_buffer.get_image()
+                        if buf.size != (w, h):
+                            bw, bh = buf.size
+                            if bw <= w and bh <= h:
+                                bg.paste(buf, (0, 0))
+                            else:
+                                try:
+                                    bg.paste(buf.crop((0, 0, w, h)), (0, 0))
+                                except Exception:
+                                    bg.paste(buf.resize((w, h)))
+                        else:
+                            bg.paste(buf)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
