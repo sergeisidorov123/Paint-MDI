@@ -12,46 +12,34 @@ from .ImageBuffer import ImageBuffer
 
 
 class PaintWindow:
-    """Main painting window. Can be embedded (Frame) or top-level (Toplevel).
-
-    Constructed as PaintWindow(parent_widget, app=None, preload_image=None).
-    """
-
-    def __init__(self, parent, app=None, preload_image=None):
-        # parent is either a Frame (embedded tab) or a Toplevel
+    def __init__(self, parent, app=None, preload_image=None, file_path=None, is_saved=False, is_updated=False, changes=False):
         self.app = app
         self.window = parent
         self.is_toplevel = isinstance(parent, tk.Toplevel)
 
-        # state
         self.is_closed = False
-        self.is_updated = False
-        self.is_saved = False
-        self.changes = False
-        self.file_path = None
+        self.is_updated = bool(is_updated)
+        self.is_saved = bool(is_saved)
+        self.changes = bool(changes)
+        self.file_path = file_path
 
-        # default paper size and color
         self.base_paper_width = 800
         self.base_paper_height = 600
         self.paper_width = self.base_paper_width
         self.paper_height = self.base_paper_height
         self.paper_fill = "white"
 
-        # image buffer (PIL) backing
         self.image_buffer = ImageBuffer(self.base_paper_width, self.base_paper_height, color=self.paper_fill)
         self.bg_loaded = False
         self.bg_image_id = None
         self.tk_image = None
 
-        # canvas
         self.canvas = Canvas(self.window, width=self.paper_width, height=self.paper_height, bg='gray90')
         self.canvas.pack(expand=True, fill=BOTH)
 
-        # paper rect and outline
         self.paper_bg = self.canvas.create_rectangle(0, 0, self.paper_width, self.paper_height, fill=self.paper_fill, outline='')
         self.paper_outline = self.canvas.create_rectangle(0, 0, self.paper_width, self.paper_height, outline='black', width=1)
 
-        # resizers
         self.resizer_size = 8
         self.right_resizer = self.canvas.create_rectangle(self.paper_width, self.paper_height/2 - self.resizer_size,
                                                           self.paper_width + self.resizer_size, self.paper_height/2 + self.resizer_size,
@@ -63,13 +51,10 @@ class PaintWindow:
                                                            self.paper_width + self.resizer_size, self.paper_height + self.resizer_size,
                                                            fill='black', tags=('resizer',))
 
-        # painter (freehand)
         self.painter = Painter(self.canvas, self.image_buffer, self.paper_fill)
 
-        # cursor preview
         self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
 
-        # ensure outline and resizers are on top of background
         try:
             self.canvas.tag_raise(self.paper_outline)
             self.canvas.tag_raise('resizer')
@@ -77,34 +62,32 @@ class PaintWindow:
         except Exception:
             pass
 
-        # shape state
         self.shape_mode = 'freehand'
         self.fill_shape = False
         self.shape_preview_id = None
         self.shape_start = None
-        # active resizer mode while dragging: 'width', 'height', or 'both'
         self.active_resize_mode = None
 
-        # zoom
         self.zoom_level = 1.0
 
-        # UI buttons
         self.__create_toolbar()
-
-        # preload image if provided
+        
         if preload_image is not None:
             try:
                 self.image_buffer.paste_image(preload_image.copy().convert('RGB'))
                 self.paper_width, self.paper_height = self.image_buffer.get_image().size
                 self.bg_loaded = True
                 self._refresh_bg_image()
+                try:
+                    self.canvas.itemconfig(self.paper_bg, fill='')
+                except Exception:
+                    pass
                 self.canvas.coords(self.paper_bg, 0, 0, self.paper_width, self.paper_height)
                 self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
                 self.update_resizers()
             except Exception:
                 pass
 
-        # bindings
         self.canvas.bind("<B1-Motion>", self.paint)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
         self.canvas.bind("<Button-1>", self.on_button_press)
@@ -121,9 +104,7 @@ class PaintWindow:
             except Exception:
                 pass
 
-    # ----------------- UI creation -----------------
     def __create_toolbar(self):
-        # create a small frame above canvas if parent supports pack
         try:
             container = Frame(self.window)
             container.pack(fill=X)
@@ -133,7 +114,6 @@ class PaintWindow:
         toolbar_notebook = Notebook(container)
         toolbar_notebook.pack(side=LEFT, fill=X, expand=True)
 
-        # Brushes tab
         brushes_tab = Frame(toolbar_notebook)
         toolbar_notebook.add(brushes_tab, text='Brush')
         self.color_button = Button(brushes_tab, text="Choose Color", command=self.choose_color)
@@ -146,7 +126,6 @@ class PaintWindow:
         self.brush_combo.pack(side=LEFT, padx=5)
         self.brush_combo.bind("<<ComboboxSelected>>", lambda e: self.painter.set_tool(self.brush_combo.get()))
 
-        # Shapes tab
         shapes_tab = Frame(toolbar_notebook)
         toolbar_notebook.add(shapes_tab, text='Shapes')
         self.shape_combo = Combobox(shapes_tab, values=["freehand", "line", "ellipse", "cylinder", "text", "fill"], state="readonly")
@@ -157,7 +136,6 @@ class PaintWindow:
         self.fill_check = Checkbutton(shapes_tab, text="Fill", variable=self.fill_var, command=lambda: setattr(self, 'fill_shape', self.fill_var.get()))
         self.fill_check.pack(side=LEFT, padx=5)
 
-        # Tools tab
         tools_tab = Frame(toolbar_notebook)
         toolbar_notebook.add(tools_tab, text='Tools')
         self.paper_color_button = Button(tools_tab, text="Paper Color", command=self.change_paper_color)
@@ -181,7 +159,6 @@ class PaintWindow:
         self.zoom_reset_btn = Button(tools_tab, text="Reset Zoom", command=self.reset_zoom)
         self.zoom_reset_btn.pack(side=LEFT, padx=5)
 
-    # ----------------- Event handlers -----------------
     def paint(self, event):
         if self.is_closed:
             return
@@ -197,13 +174,11 @@ class PaintWindow:
             except Exception:
                 pass
 
-        # resizing handles: if user started dragging a resizer, continue resizing
         try:
             if getattr(self, 'active_resize_mode', None):
                 evt = type('E', (), {'x': int(cx), 'y': int(cy)})()
                 self.resize_canvas(evt, mode=self.active_resize_mode)
                 return
-            # fallback: detect resizer under cursor (if drag started without press handler)
             items = self.canvas.find_overlapping(cx, cy, cx, cy)
             for it in items:
                 if 'resizer' in self.canvas.gettags(it):
@@ -225,7 +200,6 @@ class PaintWindow:
                 pass
             return
 
-        # freehand painting
         self.painter.paint(cx, cy, self.paper_width, self.paper_height, getattr(self, 'is_resizing', False))
         try:
             self.canvas.tag_raise(self.paper_outline)
@@ -238,7 +212,6 @@ class PaintWindow:
         self.is_resizing = False
         if hasattr(self, 'painter'):
             self.painter.reset_coords()
-        # clear active resizer when mouse released
         try:
             self.active_resize_mode = None
         except Exception:
@@ -251,7 +224,6 @@ class PaintWindow:
 
     def on_button_press(self, event):
         mode = getattr(self, 'shape_mode', 'freehand')
-        # detect if the click started on a resizer; if so, start resize drag
         try:
             cx = self.canvas.canvasx(event.x)
             cy = self.canvas.canvasy(event.y)
@@ -289,21 +261,17 @@ class PaintWindow:
 
         if mode == 'fill':
             try:
-                # Rasterize current canvas (paper + strokes) into an image, then flood-fill that image.
                 w, h = int(self.paper_width), int(self.paper_height)
                 tmp_img = self.build_export_image()
-                # perform flood fill on tmp_img using a temporary ImageBuffer
                 tmp_buf = ImageBuffer(w, h)
                 tmp_buf.image = tmp_img
                 tmp_buf.draw = ImageDraw.Draw(tmp_buf.image)
                 tmp_buf.flood_fill(x, y, self.painter.color)
-                # replace main image_buffer content with the filled image
                 try:
                     self.image_buffer.image = tmp_buf.get_image()
                     self.image_buffer.draw = ImageDraw.Draw(self.image_buffer.image)
                 except Exception:
                     pass
-                # show the updated raster as the paper background (make paper transparent)
                 self.bg_loaded = True
                 try:
                     self.canvas.itemconfig(self.paper_bg, fill='')
@@ -314,7 +282,6 @@ class PaintWindow:
                 pass
             return
 
-        # start other shapes
         self.shape_start = (x, y)
         self.shape_preview_id = None
 
@@ -387,7 +354,6 @@ class PaintWindow:
         x1 = max(0, min(int(self.paper_width), ex))
         y1 = max(0, min(int(self.paper_height), ey))
 
-        # normalize coordinates to integers for reliable PIL drawing
         try:
             x0, y0, x1, y1 = int(x0), int(y0), int(x1), int(y1)
         except Exception:
@@ -434,7 +400,6 @@ class PaintWindow:
         elif self.shape_mode == 'cylinder':
             h = max(2, abs(y1 - y0))
             ellipse_h = max(4, int(h * 0.15))
-            # compute float positions, then convert to ints for PIL
             top_bbox = [x0, y0, x1, int(y0 + ellipse_h)]
             bottom_bbox = [x0, int(y1 - ellipse_h), x1, y1]
             rect_bbox = [x0, int(y0 + ellipse_h/2), x1, int(y1 - ellipse_h/2)]
@@ -463,7 +428,6 @@ class PaintWindow:
         self.shape_start = None
         self.shape_preview_id = None
 
-    # ----------------- Helpers -----------------
     def _refresh_bg_image(self):
         try:
             self.tk_image = ImageTk.PhotoImage(self.image_buffer.get_image())
@@ -472,7 +436,10 @@ class PaintWindow:
             else:
                 self.bg_image_id = self.canvas.create_image(0, 0, anchor=NW, image=self.tk_image, tags='bg_image')
                 self.canvas.tag_lower('bg_image')
-            # keep resizers and outlines above the background image
+            try:
+                self.canvas.itemconfig(self.paper_bg, fill='')
+            except Exception:
+                pass
             try:
                 self.canvas.tag_raise(self.paper_outline)
                 self.canvas.tag_raise('resizer')
@@ -620,7 +587,16 @@ class PaintWindow:
             current_img = None
         if not self.is_toplevel and getattr(self, 'app', None):
             try:
-                self.app.create_new_window_from_image(current_img)
+                try:
+                    if getattr(self, 'changes_label', None):
+                        try:
+                            self.changes_label.destroy()
+                        except Exception:
+                            pass
+                        self.changes_label = None
+                except Exception:
+                    pass
+                self.app.create_new_window_from_image(current_img, file_path=self.file_path, is_saved=self.is_saved, is_updated=self.is_updated, changes=self.changes)
                 try:
                     self.app.detach_tab(self)
                 except Exception:
@@ -630,7 +606,7 @@ class PaintWindow:
         elif self.is_toplevel and getattr(self, 'app', None):
             try:
                 if current_img is not None:
-                    self.app.dock_image_as_tab(current_img)
+                    self.app.dock_image_as_tab(current_img, file_path=self.file_path, is_saved=self.is_saved, is_updated=self.is_updated, changes=self.changes)
                 self.close_window()
             except Exception:
                 pass
@@ -655,6 +631,15 @@ class PaintWindow:
                 save_img.save(file_path)
                 self.file_path = file_path
                 self.is_saved = True
+                try:
+                    if getattr(self, 'changes_label', None):
+                        try:
+                            self.changes_label.destroy()
+                        except Exception:
+                            pass
+                        self.changes_label = None
+                except Exception:
+                    pass
                 if self.is_toplevel:
                     try:
                         self.window.title(f"Paint Window - {os.path.basename(file_path)}")
@@ -681,6 +666,15 @@ class PaintWindow:
             else:
                 img_to_write = final_save
             img_to_write.save(self.file_path)
+            try:
+                if getattr(self, 'changes_label', None):
+                    try:
+                        self.changes_label.destroy()
+                    except Exception:
+                        pass
+                    self.changes_label = None
+            except Exception:
+                pass
         except Exception as e:
             messagebox.showerror('Save Error', f'Could not save file:\n{e}', parent=self.window if self.is_toplevel else None)
 
@@ -700,7 +694,6 @@ class PaintWindow:
             if self.is_toplevel:
                 self.window.destroy()
             else:
-                # embedded frame: destroy associated widgets
                 try:
                     self.canvas.destroy()
                 except Exception:

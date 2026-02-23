@@ -39,19 +39,19 @@ class PaintApp:
         
         self.root.mainloop()
     
-    def create_new_tab(self, event=None, image=None):
+    def create_new_tab(self, event=None, image=None, file_path=None, is_saved=False, is_updated=False, changes=False):
         new_tab = ttk.Frame(self.notebook)
         self.notebook.add(new_tab, text=f"Paint {self.notebook.index('end') + 1}")
 
-        pw = PaintWindow(new_tab, app=self, preload_image=image)
+        pw = PaintWindow(new_tab, app=self, preload_image=image, file_path=file_path, is_saved=is_saved, is_updated=is_updated, changes=changes)
         self.windows.append(pw)
         self.tab_to_pw[new_tab] = pw
 
         self.notebook.select(new_tab)
 
-    def create_new_window_from_image(self, image=None):
+    def create_new_window_from_image(self, image=None, file_path=None, is_saved=False, is_updated=False, changes=False):
         top = Toplevel(self.root)
-        pw = PaintWindow(top, app=self, preload_image=image)
+        pw = PaintWindow(top, app=self, preload_image=image, file_path=file_path, is_saved=is_saved, is_updated=is_updated, changes=changes)
         self.windows.append(pw)
         return pw
 
@@ -74,8 +74,8 @@ class PaintApp:
         except Exception:
             pass
 
-    def dock_image_as_tab(self, image):
-        self.create_new_tab(image=image)
+    def dock_image_as_tab(self, image, file_path=None, is_saved=False, is_updated=False, changes=False):
+        self.create_new_tab(image=image, file_path=file_path, is_saved=is_saved, is_updated=is_updated, changes=changes)
 
     def _get_active_paintwindow(self):
         try:
