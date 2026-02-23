@@ -14,15 +14,22 @@ count = WindowCounter()
 class PaintWindow:
     """Класс отдельного окна для рисования"""
     
-    def __init__(self, root=None):
+    def __init__(self, root=None, app=None, preload_image=None):
         """Создает новое окно для рисования"""
         count.increase_count()
+        self.is_toplevel = False
         if root:
-            self.window = Toplevel(root)
+            if isinstance(root, (tk.Tk, tk.Toplevel)):
+                self.window = root
+                self.is_toplevel = True
+            else:
+                self.window = root
         else:
             self.window = Tk()
+            self.is_toplevel = True
             self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+        self.app = app
         self.is_closed = False
         self.is_saved = False
         self.is_updated = False
@@ -34,14 +41,14 @@ class PaintWindow:
         self.paper_width = 400
         self.paper_height = 300
         
-        if self.file_name == "":
-            self.window.title(f"Paint Window #{count.get_count()}")
-        else:
-            self.window.title(f"Paint Window - {self.file_name}")
-        self.window.geometry("1200x800")
-        self.window.minsize(1200,800)
-        
-        self.window.resizable(True, True)
+        if self.is_toplevel:
+            if self.file_name == "":
+                self.window.title(f"Paint Window #{count.get_count()}")
+            else:
+                self.window.title(f"Paint Window - {self.file_name}")
+            self.window.geometry("1200x800")
+            self.window.minsize(1200,800)
+            self.window.resizable(True, True)
         
         self.canvas = Canvas(self.window, bg="gray", highlightthickness=0)
         self.canvas.pack(expand=True, fill=BOTH)
@@ -83,13 +90,38 @@ class PaintWindow:
         
         self.canvas.bind("<Configure>", self.on_canvas_configure)
         self.painter = Painter(self.canvas, self.draw, self.paper_fill)
+
+        if preload_image is not None:
+            try:
+                self.image = preload_image.copy().convert("RGB")
+                self.draw = ImageDraw.Draw(self.image)
+                self.paper_width, self.paper_height = self.image.size
+                self.bg_loaded = True
+                try:
+                    self.tk_image = ImageTk.PhotoImage(self.image)
+                    if self.bg_image_id:
+                        self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
+                    else:
+                        self.bg_image_id = self.canvas.create_image(0, 0, anchor=NW, image=self.tk_image, tags="bg_image")
+                    self.canvas.tag_lower("bg_image")
+                except Exception:
+                    pass
+                try:
+                    self.canvas.itemconfig(self.paper_bg, fill="")
+                except Exception:
+                    pass
+                self.canvas.coords(self.paper_bg, 0, 0, self.paper_width, self.paper_height)
+                self.canvas.coords(self.paper_outline, 0, 0, self.paper_width, self.paper_height)
+                self.update_resizers()
+            except Exception:
+                pass
         
         self.__buttons_create()
         
-        #binds
-        self.window.bind("<Control-w>", self.close_window)
-        self.window.bind("<Control-x>", self.save_image_as)
-        self.window.bind("<Control-s>", self.save_image)
+        if self.is_toplevel:
+            self.window.bind("<Control-w>", self.close_window)
+            self.window.bind("<Control-x>", self.save_image_as)
+            self.window.bind("<Control-s>", self.save_image)
         
         
         self.canvas.bind("<B1-Motion>", self.paint)
@@ -98,7 +130,8 @@ class PaintWindow:
         self.canvas.bind("<Motion>", self.update_oval)
         self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
         
-        self.window.protocol("WM_DELETE_WINDOW", self.close_window)
+        if self.is_toplevel:
+            self.window.protocol("WM_DELETE_WINDOW", self.close_window)
     
     def reset(self, event):
         """Сбрасывает флаги и координаты после рисования или изменения размера"""
@@ -200,16 +233,26 @@ class PaintWindow:
         self.canvas.tag_raise("cursor")
     
     def choose_color(self):
-        color_code = colorchooser.askcolor(parent=self.window)
+        color_code = colorchooser.askcolor(parent=self.window if self.is_toplevel else None)
         if color_code[1]:
             self.painter.set_color(color_code[1])
     
     def change_paper_color(self):
         """Изменяет цвет фона холста"""
         self.is_updated = True
-        self.paper_fill = colorchooser.askcolor(parent=self.window)[1]
-        self.painter = Painter(self.canvas, self.draw, self.paper_fill)
-        self.canvas.itemconfig(self.paper_bg, fill=self.paper_fill)
+        chosen = colorchooser.askcolor(parent=self.window if self.is_toplevel else None)[1]
+        if chosen:
+            self.paper_fill = chosen
+            self.bg_loaded = False
+            if self.bg_image_id:
+                try:
+                    self.canvas.delete(self.bg_image_id)
+                except Exception:
+                    pass
+                self.bg_image_id = None
+
+            self.painter = Painter(self.canvas, self.draw, self.paper_fill)
+            self.canvas.itemconfig(self.paper_bg, fill=self.paper_fill)
     
     def paint(self, event):
         """Метод-обработчик событий мыши в окне"""
@@ -275,6 +318,29 @@ class PaintWindow:
             except Exception:
                 pass
             self.draw.rectangle([0, 0, int(self.paper_width), int(self.paper_height)], fill="white")
+
+    def toggle_dock(self):
+        try:
+            current_img = self.build_export_image()
+        except Exception:
+            current_img = None
+
+        if not getattr(self, 'is_toplevel', False) and getattr(self, 'app', None):
+            try:
+                self.app.create_new_window_from_image(current_img)
+                try:
+                    self.app.detach_tab(self)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        elif getattr(self, 'is_toplevel', False) and getattr(self, 'app', None):
+            try:
+                if current_img is not None:
+                    self.app.dock_image_as_tab(current_img)
+                self.close_window()
+            except Exception:
+                pass
     
 
     def save_image_as(self, event=None):
@@ -295,7 +361,7 @@ class PaintWindow:
                 ("BMP files", "*.bmp"),
                 ("All files", "*.*")
             ],
-            parent=self.window
+            parent=self.window if self.is_toplevel else None
         )
         
         if file_path:
@@ -309,17 +375,6 @@ class PaintWindow:
                 self.changes_label = None
 
                 to_save = final_save
-                try:
-                    if not self.bg_image_id and getattr(self, 'paper_fill', None):
-                        if self.paper_fill and self.paper_fill.lower() != "white":
-                            white = Image.new("RGB", to_save.size, (255, 255, 255))
-                            diff = ImageChops.difference(to_save, white)
-                            mask = diff.convert("L").point(lambda p: 255 if p > 0 else 0)
-                            bg = Image.new("RGB", to_save.size, self.paper_fill)
-                            bg.paste(to_save, (0, 0), mask)
-                            to_save = bg
-                except Exception:
-                    pass
 
                 ext = os.path.splitext(file_path)[1].lower()
 
@@ -334,12 +389,22 @@ class PaintWindow:
                 self.is_saved = True
                 
                 file_name = os.path.basename(file_path)
-                self.window.title(f"Paint Window - {file_name}")
-                
-                messagebox.showinfo("Success", f"Image saved successfully:\n{file_path}", parent=self.window)
+                if self.is_toplevel:
+                    try:
+                        self.window.title(f"Paint Window - {file_name}")
+                    except Exception:
+                        pass
+
+                if self.is_toplevel:
+                    messagebox.showinfo("Success", f"Image saved successfully:\n{file_path}", parent=self.window)
+                else:
+                    messagebox.showinfo("Success", f"Image saved successfully:\n{file_path}")
                 
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to save image:\n{e}", parent=self.window)
+                if self.is_toplevel:
+                    messagebox.showerror("Error", f"Failed to save image:\n{e}", parent=self.window)
+                else:
+                    messagebox.showerror("Error", f"Failed to save image:\n{e}")
     
     def save_image(self, event=None):
         """Быстрое сохранение (Ctrl+S)"""
@@ -362,17 +427,6 @@ class PaintWindow:
         try:
             final_save = self.build_export_image()
             to_save = final_save
-            try:
-                if not self.bg_image_id and getattr(self, 'paper_fill', None):
-                    if self.paper_fill and self.paper_fill.lower() != "white":
-                        white = Image.new("RGB", to_save.size, (255, 255, 255))
-                        diff = ImageChops.difference(to_save, white)
-                        mask = diff.convert("L").point(lambda p: 255 if p > 0 else 0)
-                        bg = Image.new("RGB", to_save.size, self.paper_fill)
-                        bg.paste(to_save, (0, 0), mask)
-                        to_save = bg
-            except Exception:
-                pass
 
             ext = os.path.splitext(self.file_path)[1].lower()
 
@@ -384,19 +438,26 @@ class PaintWindow:
             img_to_write.save(self.file_path)
             
             file_name = os.path.basename(self.file_path)
-            self.window.title(f"Paint Window - {file_name}")
+            if self.is_toplevel:
+                try:
+                    self.window.title(f"Paint Window - {file_name}")
+                except Exception:
+                    pass
             
             
         except Exception as e:
-            messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=self.window)
+            if self.is_toplevel:
+                messagebox.showerror("Save Error", f"Could not save file:\n{e}", parent=self.window)
+            else:
+                messagebox.showerror("Save Error", f"Could not save file:\n{e}")
 
     def close_window(self, event=None):
         """Закрывает текущее окно с проверкой сохранения"""
         if self.is_updated and not self.is_saved:
             ans = messagebox.askyesnocancel(
-                "Unsaved Changes", 
-                "You have unsaved changes. Do you want to save before exiting?", 
-                parent=self.window
+                "Unsaved Changes",
+                "You have unsaved changes. Do you want to save before exiting?",
+                parent=self.window if self.is_toplevel else None
             )
             
             if ans is True: 
@@ -433,7 +494,7 @@ class PaintWindow:
     def open_image(self):
         file_path = filedialog.askopenfilename(
             filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp *.gif"), ("All files", "*.*")],
-            parent=self.window
+            parent=self.window if self.is_toplevel else None
         )
         
         if file_path:
@@ -471,23 +532,32 @@ class PaintWindow:
 
                 self.painter.draw = self.draw
                 self.file_path = file_path
-                self.window.title(f"Paint Window - {os.path.basename(file_path)}")
+                if self.is_toplevel:
+                    try:
+                        self.window.title(f"Paint Window - {os.path.basename(file_path)}")
+                    except Exception:
+                        pass
                 
             except Exception as e:
-                messagebox.showerror("Error", f"Could not open image:\n{e}")
+                if self.is_toplevel:
+                    messagebox.showerror("Error", f"Could not open image:\n{e}", parent=self.window)
+                else:
+                    messagebox.showerror("Error", f"Could not open image:\n{e}")
                 
     def build_export_image(self):
         w, h = int(self.paper_width), int(self.paper_height)
         if w <= 0 or h <= 0:
             return Image.new("RGB", (1, 1), "white")
-        
+        bg = Image.new("RGB", (w, h), self.paper_fill or "white")
         try:
             if getattr(self, 'bg_loaded', False) and hasattr(self, 'image') and self.image:
-                bg = self.image.resize((w, h))
-            else:
-                bg = Image.new("RGB", (w, h), self.paper_fill or "white")
+                try:
+                    resized = self.image.resize((w, h))
+                    bg.paste(resized)
+                except Exception:
+                    pass
         except Exception:
-            bg = Image.new("RGB", (w, h), self.paper_fill or "white")
+            pass
 
         draw = ImageDraw.Draw(bg)
 
@@ -549,6 +619,10 @@ class PaintWindow:
         self.open_button = Button(button_frame, text="Open Image", 
                                   command=self.open_image)
         self.open_button.pack(side=LEFT, padx=5)
+
+        dock_text = "Dock" if self.is_toplevel else "Undock"
+        self.dock_button = Button(button_frame, text=dock_text, command=self.toggle_dock)
+        self.dock_button.pack(side=LEFT, padx=5)
 
         self.close_button = Button(button_frame, text="Close Window", 
                                   command=self.close_window)

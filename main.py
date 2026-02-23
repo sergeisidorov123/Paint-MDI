@@ -1,9 +1,11 @@
+from tkinter import *
 from app.main_window.PaintApp import PaintApp
 
 
 if __name__ == "__main__":
     # Создаем и запускаем приложение
-    app = PaintApp()
+    root = Tk()
+    app = PaintApp(root)
     
     
 #TODO
