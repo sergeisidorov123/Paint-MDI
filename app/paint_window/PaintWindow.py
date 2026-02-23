@@ -7,7 +7,8 @@ import time
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
 from .Painter import Painter
-from PIL import Image, ImageDraw, ImageTk, ImageChops
+from PIL import Image, ImageTk, ImageDraw
+from .ImageBuffer import ImageBuffer
 
 count = WindowCounter()
         
@@ -40,6 +41,9 @@ class PaintWindow:
         
         self.paper_width = 400
         self.paper_height = 300
+        self.base_paper_width = self.paper_width
+        self.base_paper_height = self.paper_height
+        self.zoom_level = 1.0
         
         if self.is_toplevel:
             if self.file_name == "":
@@ -77,8 +81,7 @@ class PaintWindow:
         self.canvas_height = 2000
         self.canvas.configure(scrollregion=(0, 0, self.canvas_width, self.canvas_height))
         
-        self.image = Image.new("RGB", (self.canvas_width, self.canvas_height), "white")
-        self.draw = ImageDraw.Draw(self.image)
+        self.image_buffer = ImageBuffer(self.canvas_width, self.canvas_height, "white")
         self.tk_image = None
         self.bg_image_id = None
         self.bg_loaded = False
@@ -89,22 +92,20 @@ class PaintWindow:
         self.visible_height = 500
         
         self.canvas.bind("<Configure>", self.on_canvas_configure)
-        self.painter = Painter(self.canvas, self.draw, self.paper_fill)
+        self.painter = Painter(self.canvas, self.image_buffer, self.paper_fill)
 
-        # shape tool state
-        self.shape_mode = 'freehand'  # 'freehand' | 'line' | 'ellipse'
+        self.shape_mode = 'freehand'
         self.fill_shape = False
         self.shape_preview_id = None
         self.shape_start = None
 
         if preload_image is not None:
             try:
-                self.image = preload_image.copy().convert("RGB")
-                self.draw = ImageDraw.Draw(self.image)
-                self.paper_width, self.paper_height = self.image.size
+                self.image_buffer.paste_image(preload_image.copy().convert("RGB"))
+                self.paper_width, self.paper_height = self.image_buffer.get_image().size
                 self.bg_loaded = True
                 try:
-                    self.tk_image = ImageTk.PhotoImage(self.image)
+                    self.tk_image = ImageTk.PhotoImage(self.image_buffer.get_image())
                     if self.bg_image_id:
                         self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
                     else:
@@ -133,6 +134,7 @@ class PaintWindow:
         self.canvas.bind("<B1-Motion>", self.paint)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
         self.canvas.bind("<Button-1>", self.on_button_press)
+        self.canvas.bind("<Control-+>", self.zoom)
         
         self.canvas.bind("<Motion>", self.update_oval)
         self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
@@ -145,7 +147,6 @@ class PaintWindow:
         self.is_resizing = False 
         if hasattr(self, 'painter'):
             self.painter.reset_coords()
-        # finalize shape if we're in shape mode
         try:
             if getattr(self, 'shape_mode', 'freehand') != 'freehand':
                 self.finish_shape(event)
@@ -203,6 +204,24 @@ class PaintWindow:
 
         self.update_resizers()
 
+    def zoom(self, factor: float):
+        try:
+            new_w = max(10, int(self.paper_width * factor))
+            new_h = max(10, int(self.paper_height * factor))
+            evt = type("E", (), {"x": int(new_w), "y": int(new_h)})()
+            self.resize_canvas(evt, mode="both")
+            self.zoom_level *= factor
+        except Exception:
+            pass
+
+    def reset_zoom(self):
+        try:
+            evt = type("E", (), {"x": int(self.base_paper_width), "y": int(self.base_paper_height)})()
+            self.resize_canvas(evt, mode="both")
+            self.zoom_level = 1.0
+        except Exception:
+            pass
+
     def resize_pillow_image(self):
         """Синхронизирует / масштабирует Pillow Image и отображение под текущий размер бумаги."""
         w, h = int(self.paper_width), int(self.paper_height)
@@ -211,16 +230,14 @@ class PaintWindow:
 
         try:
             self.is_updated = True
-            if (w, h) != self.image.size:
+            if (w, h) != self.image_buffer.get_image().size:
                 try:
-                    self.image = self.image.resize((w, h), Image.LANCZOS)
+                    self.image_buffer.resize(w, h, resample=Image.LANCZOS)
                 except Exception:
-                    self.image = self.image.resize((w, h))
-                self.draw = ImageDraw.Draw(self.image)
-                self.painter.draw = self.draw
+                    self.image_buffer.resize(w, h)
 
             if getattr(self, 'bg_loaded', False):
-                self.tk_image = ImageTk.PhotoImage(self.image)
+                self.tk_image = ImageTk.PhotoImage(self.image_buffer.get_image())
                 if self.bg_image_id:
                     self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
                 else:
@@ -264,7 +281,7 @@ class PaintWindow:
                     pass
                 self.bg_image_id = None
 
-            self.painter = Painter(self.canvas, self.draw, self.paper_fill)
+            self.painter = Painter(self.canvas, self.image_buffer, self.paper_fill)
             self.canvas.itemconfig(self.paper_bg, fill=self.paper_fill)
     
     def paint(self, event):
@@ -304,7 +321,6 @@ class PaintWindow:
         except Exception:
             pass
 
-        # If a shape tool is selected, update preview instead of freehand drawing
         if getattr(self, 'shape_mode', 'freehand') != 'freehand':
             try:
                 self.update_shape_preview(cx, cy)
@@ -338,7 +354,10 @@ class PaintWindow:
                 self.canvas.delete("stroke")
             except Exception:
                 pass
-            self.draw.rectangle([0, 0, int(self.paper_width), int(self.paper_height)], fill="white")
+            try:
+                self.image_buffer.fill_rect([0, 0, int(self.paper_width), int(self.paper_height)], fill="white")
+            except Exception:
+                pass
 
     def toggle_dock(self):
         try:
@@ -521,10 +540,8 @@ class PaintWindow:
         if file_path:
             try:
                 opened_image = Image.open(file_path)
-                self.image = opened_image.convert("RGB")
-                self.draw = ImageDraw.Draw(self.image)
-                
-                self.paper_width, self.paper_height = self.image.size
+                self.image_buffer.paste_image(opened_image.convert("RGB"))
+                self.paper_width, self.paper_height = self.image_buffer.get_image().size
             
                 self.canvas.delete("stroke") 
                 self.canvas.delete("bg_image")
@@ -532,7 +549,7 @@ class PaintWindow:
 
                 self.bg_loaded = True
 
-                self.tk_image = ImageTk.PhotoImage(self.image)
+                self.tk_image = ImageTk.PhotoImage(self.image_buffer.get_image())
                 if self.bg_image_id:
                     self.canvas.itemconfig(self.bg_image_id, image=self.tk_image)
                 else:
@@ -551,7 +568,6 @@ class PaintWindow:
                 self.canvas.tag_raise("resizer")
                 self.canvas.tag_raise("cursor")
 
-                self.painter.draw = self.draw
                 self.file_path = file_path
                 if self.is_toplevel:
                     try:
@@ -571,9 +587,9 @@ class PaintWindow:
             return Image.new("RGB", (1, 1), "white")
         bg = Image.new("RGB", (w, h), self.paper_fill or "white")
         try:
-            if getattr(self, 'bg_loaded', False) and hasattr(self, 'image') and self.image:
+            if getattr(self, 'bg_loaded', False) and getattr(self, 'image_buffer', None):
                 try:
-                    resized = self.image.resize((w, h))
+                    resized = self.image_buffer.get_image().resize((w, h))
                     bg.paste(resized)
                 except Exception:
                     pass
@@ -677,22 +693,31 @@ class PaintWindow:
             if self.shape_mode == 'line':
                 self.canvas.create_line(x0, y0, x1, y1, fill=color, width=width, capstyle=ROUND, joinstyle=ROUND, tags=("stroke",))
                 try:
-                    self.draw.line([x0, y0, x1, y1], fill=color, width=width)
+                    self.image_buffer.draw_line([x0, y0, x1, y1], fill=color, width=width)
                 except Exception:
-                    self.draw.line([x0, y0, x1, y1], fill=color, width=int(width))
+                    try:
+                        self.image_buffer.draw_line([x0, y0, x1, y1], fill=color, width=int(width))
+                    except Exception:
+                        pass
             elif self.shape_mode == 'ellipse':
                 if getattr(self, 'fill_shape', False):
                     self.canvas.create_oval(x0, y0, x1, y1, fill=color, outline=color, tags=("stroke",))
                     try:
-                        self.draw.ellipse([x0, y0, x1, y1], fill=color, outline=color)
+                        self.image_buffer.draw_ellipse([x0, y0, x1, y1], fill=color, outline=color)
                     except Exception:
-                        self.draw.ellipse([x0, y0, x1, y1], fill=color)
+                        try:
+                            self.image_buffer.draw_ellipse([x0, y0, x1, y1], fill=color)
+                        except Exception:
+                            pass
                 else:
                     self.canvas.create_oval(x0, y0, x1, y1, outline=color, width=width, tags=("stroke",))
                     try:
-                        self.draw.ellipse([x0, y0, x1, y1], outline=color, width=width)
+                        self.image_buffer.draw_ellipse([x0, y0, x1, y1], outline=color, width=width)
                     except Exception:
-                        self.draw.ellipse([x0, y0, x1, y1], outline=color)
+                        try:
+                            self.image_buffer.draw_ellipse([x0, y0, x1, y1], outline=color)
+                        except Exception:
+                            pass
 
         finally:
             self.shape_start = None
@@ -760,7 +785,7 @@ class PaintWindow:
         self.brush_combo.bind("<<ComboboxSelected>>", lambda e: self.painter.set_tool(self.brush_combo.get()))
         ButtonDescription(self.brush_combo, "Выбор инструмента: кисть или ластик")
         
-        self.shape_combo = Combobox(button_frame, values=["hand", "line", "ellipse"], state="readonly")
+        self.shape_combo = Combobox(button_frame, values=["freehand", "line", "ellipse"], state="readonly")
         self.shape_combo.current(0)
         self.shape_combo.pack(side=LEFT, padx=5)
         self.shape_combo.bind("<<ComboboxSelected>>", lambda e: setattr(self, 'shape_mode', self.shape_combo.get()))
@@ -769,3 +794,10 @@ class PaintWindow:
         self.fill_var = tk.BooleanVar(value=False)
         self.fill_check = Checkbutton(button_frame, text="Fill", variable=self.fill_var, command=lambda: setattr(self, 'fill_shape', self.fill_var.get()))
         self.fill_check.pack(side=LEFT, padx=5)
+
+        self.zoom_in_btn = Button(button_frame, text="Zoom In", command=lambda: self.zoom(1.25))
+        self.zoom_in_btn.pack(side=LEFT, padx=5)
+        self.zoom_out_btn = Button(button_frame, text="Zoom Out", command=lambda: self.zoom(0.75))
+        self.zoom_out_btn.pack(side=LEFT, padx=5)
+        self.zoom_reset_btn = Button(button_frame, text="Reset Zoom", command=lambda: self.reset_zoom())
+        self.zoom_reset_btn.pack(side=LEFT, padx=5)

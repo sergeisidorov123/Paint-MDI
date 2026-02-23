@@ -58,3 +58,15 @@ class ImageBuffer:
                 self.draw.ellipse(bbox)
             except Exception:
                 pass
+
+    def fill_rect(self, bbox, fill="white"):
+        try:
+            self.draw.rectangle(bbox, fill=fill)
+        except Exception:
+            try:
+                # fallback: paste a solid image
+                tmp = Image.new("RGB", (bbox[2]-bbox[0], bbox[3]-bbox[1]), fill)
+                self.image.paste(tmp, (bbox[0], bbox[1]))
+                self.draw = ImageDraw.Draw(self.image)
+            except Exception:
+                pass

@@ -35,6 +35,7 @@ class PaintApp:
         self.root.bind_all("<Control-s>", self._dispatch_save)
         self.root.bind_all("<Control-x>", self._dispatch_save_as)
         self.root.bind_all("<Control-w>", self._dispatch_close_active)
+        self.root.bind_all("<Control-equal>", self._dispatch_zoom)
         
         self.root.mainloop()
     
@@ -107,6 +108,14 @@ class PaintApp:
         if pw:
             try:
                 pw.close_window()
+            except Exception:
+                pass
+    
+    def _dispatch_zoom(self, event=None):
+        pw = self._get_active_paintwindow()
+        if pw:
+            try:
+                pw.zoom(1.25)
             except Exception:
                 pass
     

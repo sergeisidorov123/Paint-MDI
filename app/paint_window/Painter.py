@@ -1,12 +1,13 @@
 from tkinter import *
-from PIL import Image, ImageDraw
+from .ImageBuffer import ImageBuffer
+from PIL import Image
 import math
 
 
 class Painter:
-    def __init__(self, canvas, draw: ImageDraw.ImageDraw, paper_fill):
+    def __init__(self, canvas, image_buffer: ImageBuffer, paper_fill):
         self.canvas = canvas
-        self.draw = draw
+        self.image_buffer = image_buffer
         self.paper_fill = paper_fill
         
         self.color = "black"
@@ -58,7 +59,10 @@ class Painter:
             r = max(1, self.width / 2)
             self.canvas.create_oval(x - r, y - r, x + r, y + r,
                                     fill=color, outline=color, tags=("stroke",))
-            self.draw.ellipse([x - r, y - r, x + r, y + r], fill=color, outline=color)
+            try:
+                self.image_buffer.draw_ellipse([x - r, y - r, x + r, y + r], fill=color, outline=color)
+            except Exception:
+                pass
             self.last_x, self.last_y = x, y
             return
 
@@ -68,8 +72,11 @@ class Painter:
                                 tags=("stroke",))
 
         try:
-            self.draw.line([self.last_x, self.last_y, x, y], fill=color, width=self.width)
+            self.image_buffer.draw_line([self.last_x, self.last_y, x, y], fill=color, width=self.width)
         except Exception:
-            self.draw.line([self.last_x, self.last_y, x, y], fill=color, width=int(self.width))
+            try:
+                self.image_buffer.draw_line([self.last_x, self.last_y, x, y], fill=color, width=int(self.width))
+            except Exception:
+                pass
 
         self.last_x, self.last_y = x, y
