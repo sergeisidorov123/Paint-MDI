@@ -40,7 +40,7 @@ class PaintApp:
     
     def create_new_tab(self, event=None, image=None):
         new_tab = ttk.Frame(self.notebook)
-        self.notebook.add(new_tab, text=f"Рисунок {self.notebook.index('end') + 1}")
+        self.notebook.add(new_tab, text=f"Paint {self.notebook.index('end') + 1}")
 
         pw = PaintWindow(new_tab, app=self, preload_image=image)
         self.windows.append(pw)

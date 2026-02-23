@@ -91,6 +91,12 @@ class PaintWindow:
         self.canvas.bind("<Configure>", self.on_canvas_configure)
         self.painter = Painter(self.canvas, self.draw, self.paper_fill)
 
+        # shape tool state
+        self.shape_mode = 'freehand'  # 'freehand' | 'line' | 'ellipse'
+        self.fill_shape = False
+        self.shape_preview_id = None
+        self.shape_start = None
+
         if preload_image is not None:
             try:
                 self.image = preload_image.copy().convert("RGB")
@@ -126,6 +132,7 @@ class PaintWindow:
         
         self.canvas.bind("<B1-Motion>", self.paint)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
+        self.canvas.bind("<Button-1>", self.on_button_press)
         
         self.canvas.bind("<Motion>", self.update_oval)
         self.cursor = self.canvas.create_oval(0, 0, 0, 0, outline="black", width=1, tags="cursor")
@@ -138,6 +145,12 @@ class PaintWindow:
         self.is_resizing = False 
         if hasattr(self, 'painter'):
             self.painter.reset_coords()
+        # finalize shape if we're in shape mode
+        try:
+            if getattr(self, 'shape_mode', 'freehand') != 'freehand':
+                self.finish_shape(event)
+        except Exception:
+            pass
             
     def update_resizers(self):
         """Перерисовывает маркеры в углах холста"""
@@ -290,6 +303,14 @@ class PaintWindow:
                     return
         except Exception:
             pass
+
+        # If a shape tool is selected, update preview instead of freehand drawing
+        if getattr(self, 'shape_mode', 'freehand') != 'freehand':
+            try:
+                self.update_shape_preview(cx, cy)
+            except Exception:
+                pass
+            return
 
         self.painter.paint(
             cx,
@@ -585,6 +606,97 @@ class PaintWindow:
             pass
 
         return bg
+
+    def on_button_press(self, event):
+        """Handle mouse button press to start a shape or begin freehand."""
+        if getattr(self, 'shape_mode', 'freehand') == 'freehand':
+            return
+
+        x = int(self.canvas.canvasx(event.x))
+        y = int(self.canvas.canvasy(event.y))
+        x = max(0, min(int(self.paper_width), x))
+        y = max(0, min(int(self.paper_height), y))
+        self.shape_start = (x, y)
+        self.shape_preview_id = None
+
+    def update_shape_preview(self, cx, cy):
+        """Update temporary preview of the shape while dragging."""
+        if not hasattr(self, 'shape_start') or self.shape_start is None:
+            return
+        x0, y0 = self.shape_start
+        x1 = int(max(0, min(int(self.paper_width), cx)))
+        y1 = int(max(0, min(int(self.paper_height), cy)))
+
+        try:
+            if getattr(self, 'shape_preview_id', None):
+                self.canvas.delete(self.shape_preview_id)
+        except Exception:
+            pass
+
+        color = self.painter.color
+        width = self.painter.width
+
+        if self.shape_mode == 'line':
+            self.shape_preview_id = self.canvas.create_line(x0, y0, x1, y1, fill=color, width=width, dash=(3,5), tags=("preview",))
+        elif self.shape_mode == 'ellipse':
+            if getattr(self, 'fill_shape', False):
+                self.shape_preview_id = self.canvas.create_oval(x0, y0, x1, y1, fill=color, outline=color, stipple='gray50', tags=("preview",))
+            else:
+                self.shape_preview_id = self.canvas.create_oval(x0, y0, x1, y1, outline=color, width=width, dash=(3,5), tags=("preview",))
+
+    def finish_shape(self, event=None):
+        """Finalize the shape: draw permanent item and rasterize into PIL image."""
+        try:
+            if not hasattr(self, 'shape_start') or self.shape_start is None:
+                return
+            if event is not None:
+                ex = int(self.canvas.canvasx(event.x))
+                ey = int(self.canvas.canvasy(event.y))
+            else:
+                coords = None
+                if getattr(self, 'shape_preview_id', None):
+                    coords = self.canvas.coords(self.shape_preview_id)
+                if coords and len(coords) >= 4:
+                    ex, ey = int(coords[2]), int(coords[3])
+                else:
+                    ex, ey = self.shape_start
+
+            x0, y0 = self.shape_start
+            x1 = max(0, min(int(self.paper_width), ex))
+            y1 = max(0, min(int(self.paper_height), ey))
+
+            try:
+                if getattr(self, 'shape_preview_id', None):
+                    self.canvas.delete(self.shape_preview_id)
+            except Exception:
+                pass
+
+            color = self.painter.color
+            width = self.painter.width
+
+            if self.shape_mode == 'line':
+                self.canvas.create_line(x0, y0, x1, y1, fill=color, width=width, capstyle=ROUND, joinstyle=ROUND, tags=("stroke",))
+                try:
+                    self.draw.line([x0, y0, x1, y1], fill=color, width=width)
+                except Exception:
+                    self.draw.line([x0, y0, x1, y1], fill=color, width=int(width))
+            elif self.shape_mode == 'ellipse':
+                if getattr(self, 'fill_shape', False):
+                    self.canvas.create_oval(x0, y0, x1, y1, fill=color, outline=color, tags=("stroke",))
+                    try:
+                        self.draw.ellipse([x0, y0, x1, y1], fill=color, outline=color)
+                    except Exception:
+                        self.draw.ellipse([x0, y0, x1, y1], fill=color)
+                else:
+                    self.canvas.create_oval(x0, y0, x1, y1, outline=color, width=width, tags=("stroke",))
+                    try:
+                        self.draw.ellipse([x0, y0, x1, y1], outline=color, width=width)
+                    except Exception:
+                        self.draw.ellipse([x0, y0, x1, y1], outline=color)
+
+        finally:
+            self.shape_start = None
+            self.shape_preview_id = None
             
     def __buttons_create(self):
         """Создает кнопки для управления окном рисования"""
@@ -647,3 +759,13 @@ class PaintWindow:
         self.brush_combo.pack(side=LEFT, padx=5)
         self.brush_combo.bind("<<ComboboxSelected>>", lambda e: self.painter.set_tool(self.brush_combo.get()))
         ButtonDescription(self.brush_combo, "Выбор инструмента: кисть или ластик")
+        
+        self.shape_combo = Combobox(button_frame, values=["hand", "line", "ellipse"], state="readonly")
+        self.shape_combo.current(0)
+        self.shape_combo.pack(side=LEFT, padx=5)
+        self.shape_combo.bind("<<ComboboxSelected>>", lambda e: setattr(self, 'shape_mode', self.shape_combo.get()))
+        ButtonDescription(self.shape_combo, "Выбор режима рисования: свободно/линия/эллипс")
+
+        self.fill_var = tk.BooleanVar(value=False)
+        self.fill_check = Checkbutton(button_frame, text="Fill", variable=self.fill_var, command=lambda: setattr(self, 'fill_shape', self.fill_var.get()))
+        self.fill_check.pack(side=LEFT, padx=5)
