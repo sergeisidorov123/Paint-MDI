@@ -1,8 +1,8 @@
 {
-  "mode": "manual",
+  "mode": "auto",
   "plugins": {
-    "negative_plugin.py": true,
     "matrix.py": false,
+    "negative_plugin.py": false,
     "plugin_template.py": false
   }
 }

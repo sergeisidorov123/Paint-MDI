@@ -18,10 +18,12 @@ from .ImageBuffer import ImageBuffer
 
 
 class PaintWindow:
-    def __init__(self, parent, app=None, preload_image=None, file_path=None, is_saved=False, is_updated=False, changes=False):
+    def __init__(self, parent, app=None, preload_image=None, file_path=None, is_saved=False, is_updated=False, changes=False, allowed_plugins=None):
         self.app = app
         self.window = parent
         self.is_toplevel = isinstance(parent, tk.Toplevel)
+        # If allowed_plugins is set (list of filenames), only these plugins are loaded
+        self.allowed_plugins = allowed_plugins
 
         self.is_closed = False
         self.is_updated = bool(is_updated)
@@ -869,12 +871,16 @@ class PaintWindow:
 
             # determine which files to load
             files_to_load = []
-            if cfg.get('mode', 'auto') == 'auto':
-                files_to_load = files
+            if self.allowed_plugins is not None:
+                # Если установлены allowed_plugins, загружать только их
+                files_to_load = [f for f in files if f in set(self.allowed_plugins)]
             else:
-                for f in files:
-                    if cfg.get('plugins', {}).get(f):
-                        files_to_load.append(f)
+                if cfg.get('mode', 'auto') == 'auto':
+                    files_to_load = files
+                else:
+                    for f in files:
+                        if cfg.get('plugins', {}).get(f):
+                            files_to_load.append(f)
 
             # try to load each selected file
             # reset file->module/display maps
@@ -901,45 +907,33 @@ class PaintWindow:
             pass
 
     def refresh_plugins_ui(self):
-        """Rebuild the checkboxes UI for current plugins."""
+        """Rebuild the checkboxes UI for current plugins - show only loaded plugins using filenames."""
         try:
             # clear UI container if present
             container = getattr(self, 'plugins_list_frame', None)
             # always reset vars so internal state is consistent
             self.plugin_vars.clear()
             if container is None:
-                # nothing to draw (window not opened) — just populate vars
-                # populate vars from config if available
-                if getattr(self, 'plugins_config', None) and isinstance(self.plugins_config.get('plugins'), dict):
-                    for fname in sorted(self.plugins_config.get('plugins').keys()):
-                        val = bool(self.plugins_config['plugins'].get(fname, False))
-                        self.plugin_vars[fname] = tk.BooleanVar(value=val)
-                else:
-                    for name in sorted(self.plugins.keys()):
-                        self.plugin_vars[name] = tk.BooleanVar(value=False)
+                # nothing to draw (window not opened) — just populate vars from loaded plugins
+                for fname in sorted(self.plugin_file_map.keys()):
+                    val = bool(self.plugins_config.get('plugins', {}).get(fname, False)) if self.plugins_config else False
+                    self.plugin_vars[fname] = tk.BooleanVar(value=val)
                 return
             for child in container.winfo_children():
                 try:
                     child.destroy()
                 except Exception:
                     pass
-            # show entries from config if available, else show loaded plugins
-            if getattr(self, 'plugins_config', None) and isinstance(self.plugins_config.get('plugins'), dict):
-                for fname in sorted(self.plugins_config.get('plugins').keys()):
-                    val = bool(self.plugins_config['plugins'].get(fname, False))
-                    var = tk.BooleanVar(value=val)
-                    # label: use display name if module loaded, else filename
-                    disp = self.plugin_display_by_file.get(fname, fname)
-                    cb = Checkbutton(container, text=disp, variable=var,
-                                     command=(lambda f=fname, v=var: self._on_config_toggle(f, v)))
-                    cb.pack(anchor='w')
-                    self.plugin_vars[fname] = var
-            else:
-                for name in sorted(self.plugins.keys()):
-                    var = tk.BooleanVar(value=False)
-                    cb = Checkbutton(container, text=name, variable=var)
-                    cb.pack(anchor='w')
-                    self.plugin_vars[name] = var
+            # show only loaded plugins (files in plugin_file_map) using PLUGIN_NAME as display
+            for fname in sorted(self.plugin_file_map.keys()):
+                val = bool(self.plugins_config.get('plugins', {}).get(fname, False)) if self.plugins_config else False
+                var = tk.BooleanVar(value=val)
+                # show PLUGIN_NAME if available, else filename
+                disp = self.plugin_display_by_file.get(fname, fname)
+                cb = Checkbutton(container, text=disp, variable=var,
+                                 command=(lambda f=fname, v=var: self._on_config_toggle(f, v)))
+                cb.pack(anchor='w')
+                self.plugin_vars[fname] = var
             # show any failed imports below
             if getattr(self, 'plugins_failed', None):
                 sep = Label(container, text='--- Failed to load ---')
@@ -988,23 +982,19 @@ class PaintWindow:
             messagebox.showinfo('Plugins', 'No uploaded/background image to apply plugins to.', parent=self.plugins_window )
             return
 
-        # collect selected plugins
+        # collect selected plugins - keys are filenames
         to_apply = []
-        for key, var in list(self.plugin_vars.items()):
+        for fname, var in list(self.plugin_vars.items()):
             try:
                 if not var.get():
                     continue
-                # key may be a filename (new config) or a display name (legacy)
-                mod = None
-                if getattr(self, 'plugin_file_map', None) and key in self.plugin_file_map:
-                    mod = self.plugin_file_map.get(key)
-                elif key in self.plugins:
-                    mod = self.plugins.get(key)
+                # fname is a filename, get module from plugin_file_map
+                mod = self.plugin_file_map.get(fname)
                 if mod is None:
                     continue
                 proc = getattr(mod, 'process_image', None)
                 if callable(proc):
-                    to_apply.append((key, proc))
+                    to_apply.append((fname, proc))
             except Exception:
                 pass
         if not to_apply:
