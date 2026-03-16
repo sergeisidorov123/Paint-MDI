@@ -38,6 +38,7 @@ class PaintWindow:
         self.paper_fill = "white"
 
         self.image_buffer = ImageBuffer(self.base_paper_width, self.base_paper_height, color=self.paper_fill)
+        self.original_loaded_image = None  # Store original opened image without stretching
         self.bg_loaded = False
         self.bg_image_id = None
         self.tk_image = None
@@ -82,6 +83,8 @@ class PaintWindow:
         
         if preload_image is not None:
             try:
+                # Store original image for plugins
+                self.original_loaded_image = preload_image.copy().convert('RGB')
                 self.image_buffer.paste_image(preload_image.copy().convert('RGB'))
                 self.paper_width, self.paper_height = self.image_buffer.get_image().size
                 self.bg_loaded = True
@@ -764,6 +767,8 @@ class PaintWindow:
         if file_path:
             try:
                 opened_image = Image.open(file_path)
+                # Store original image for plugins (without stretching)
+                self.original_loaded_image = opened_image.convert('RGB').copy()
                 self.image_buffer.paste_image(opened_image.convert('RGB'))
                 self.paper_width, self.paper_height = self.image_buffer.get_image().size
                 self.bg_loaded = True
@@ -1020,17 +1025,26 @@ class PaintWindow:
         except Exception:
             pass
 
+        # Use original loaded image for plugins (without canvas stretching)
+        original_img = self.original_loaded_image.copy() if self.original_loaded_image else self.image_buffer.get_image().copy()
+
         def worker(img_copy, procs):
             result = img_copy
             total = len(procs)
             count = 0
+            cancelled = False
             for name, proc in procs:
                 try:
                     if getattr(self, '_plugins_cancel_requested', False):
+                        cancelled = True
                         break
                     maybe = proc(result)
                     if maybe is not None:
                         result = maybe
+                    # CHECK CANCEL FLAG AFTER EACH PLUGIN COMPLETES
+                    if getattr(self, '_plugins_cancel_requested', False):
+                        cancelled = True
+                        break
                     count += 1
                     # update progress
                     try:
@@ -1044,16 +1058,37 @@ class PaintWindow:
                         self.plugins_failed[name] = traceback.format_exc()
                     except Exception:
                         pass
-            # schedule UI update on main thread
-            def finish():
-                try:
-                    self.image_buffer.image = result
-                    self.image_buffer.draw = ImageDraw.Draw(self.image_buffer.image)
-                    self.bg_loaded = True
-                    self._refresh_bg_image()
-                except Exception:
-                    pass
-                # re-enable known plugin window widgets
+            
+            # IMMEDIATELY restore or apply image on the main thread
+            def apply_or_restore():
+                if cancelled:
+                    # Restore original image immediately
+                    try:
+                        restored = original_img.copy()
+                        self.original_loaded_image = restored.copy()
+                        self.image_buffer.image = restored
+                        self.image_buffer.draw = ImageDraw.Draw(self.image_buffer.image)
+                        self.bg_loaded = True
+                        self._refresh_bg_image()
+                    except Exception:
+                        pass
+                    # Show message
+                    try:
+                        messagebox.showinfo('Plugins', 'Processing was cancelled.', parent=self.plugins_window if self.plugins_window else None)
+                    except Exception:
+                        pass
+                else:
+                    # Apply result only if not cancelled
+                    try:
+                        self.original_loaded_image = result.copy()
+                        self.image_buffer.image = result.copy()
+                        self.image_buffer.draw = ImageDraw.Draw(self.image_buffer.image)
+                        self.bg_loaded = True
+                        self._refresh_bg_image()
+                    except Exception:
+                        pass
+                
+                # Re-enable buttons
                 try:
                     if getattr(self, 'plugins_refresh_btn', None):
                         try:
@@ -1079,7 +1114,7 @@ class PaintWindow:
                     pass
 
             try:
-                self.window.after(1, finish)
+                self.window.after(0, apply_or_restore)
             except Exception:
                 pass
 
@@ -1169,10 +1204,13 @@ class PaintWindow:
             btns.pack(fill=X, padx=8, pady=4)
             refresh_b = Button(btns, text='Refresh Plugins', command=lambda: (self.load_plugins(), self.refresh_plugins_ui()))
             refresh_b.pack(side=LEFT, padx=4)
+            self.plugins_refresh_btn = refresh_b
             apply_b = Button(btns, text='Apply Selected', command=self.apply_selected_plugins)
             apply_b.pack(side=LEFT, padx=4)
+            self.plugins_apply_btn = apply_b
             cancel_b = Button(btns, text='Cancel', command=lambda: setattr(self, '_plugins_cancel_requested', True))
             cancel_b.pack(side=LEFT, padx=4)
+            self.plugins_cancel_btn = cancel_b
             close_b = Button(btns, text='Close', command=on_close)
             close_b.pack(side=RIGHT, padx=4)
 

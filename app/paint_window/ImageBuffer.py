@@ -19,11 +19,19 @@ class ImageBuffer:
 
     def paste_image(self, pil_image):
         try:
-            self.image.paste(pil_image.resize(self.image.size))
-            self.draw = ImageDraw.Draw(self.image)
+            # If the incoming image has a different size, replace the buffer
+            # with the image itself so the opened photo keeps its native size.
+            if pil_image.size != self.image.size:
+                self.image = pil_image.convert("RGB")
+                self.draw = ImageDraw.Draw(self.image)
+            else:
+                # Same size: paste into existing buffer
+                self.image.paste(pil_image)
+                self.draw = ImageDraw.Draw(self.image)
         except Exception:
             try:
-                self.image = pil_image.convert("RGB").resize(self.image.size)
+                # Fallback: ensure we at least store the image (resized if needed)
+                self.image = pil_image.convert("RGB")
                 self.draw = ImageDraw.Draw(self.image)
             except Exception:
                 pass

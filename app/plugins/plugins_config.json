@@ -1,8 +1,9 @@
 {
-  "mode": "auto",
+  "mode": "manual",
   "plugins": {
-    "matrix.py": false,
-    "negative_plugin.py": false,
+    "border_plugin.py": true,
+    "matrix_plugin.py": false,
+    "negative_plugin.py": true,
     "plugin_template.py": false
   }
 }

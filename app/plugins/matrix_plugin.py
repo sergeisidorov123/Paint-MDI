@@ -3,7 +3,6 @@ from PIL import Image
 PLUGIN_NAME = "Matrix convolution"
 
 def process_image(input_image: Image.Image) -> Image.Image:
-    """Apply a small sharpening-like convolution kernel and return a new image."""
     try:
         kernel = [[-1, -1, -1],
                   [-1, 9, -1],
