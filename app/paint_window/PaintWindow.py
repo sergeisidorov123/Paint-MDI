@@ -8,6 +8,7 @@ import importlib.machinery
 import sys
 import threading
 import traceback
+import json
 from tkinter import colorchooser, messagebox, filedialog, simpledialog
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
@@ -174,6 +175,9 @@ class PaintWindow:
         self.plugins_failed = {}  # filename -> error string
         self.plugin_progress_var = None
         self._plugins_cancel_requested = False
+        self.plugins_config = None
+        self.plugin_file_map = {}
+        self.plugin_display_by_file = {}
 
     def paint(self, event):
         if self.is_closed:
@@ -798,6 +802,26 @@ class PaintWindow:
                 pass
             return None
 
+    def _read_plugins_config(self, plugins_dir: str):
+        cfg_path = os.path.join(plugins_dir, 'plugins_config.json')
+        cfg = None
+        try:
+            if os.path.isfile(cfg_path):
+                with open(cfg_path, 'r', encoding='utf-8') as fh:
+                    cfg = json.load(fh)
+            else:
+                cfg = None
+        except Exception:
+            cfg = None
+        return cfg, cfg_path
+
+    def _write_plugins_config(self, cfg, path):
+        try:
+            with open(path, 'w', encoding='utf-8') as fh:
+                json.dump(cfg, fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
     def load_plugins(self):
         """Scan the plugins directory and load available plugins, then refresh UI."""
         try:
@@ -805,11 +829,58 @@ class PaintWindow:
             if not os.path.isdir(plugins_dir):
                 return
             files = [f for f in os.listdir(plugins_dir) if f.endswith('.py') and not f.startswith('__')]
-            # clear existing plugin entries
+
+            # read or create config
+            cfg, cfg_path = self._read_plugins_config(plugins_dir)
+            cfg_changed = False
+            if cfg is None:
+                # create automatic config with all found plugins
+                cfg = {'mode': 'auto', 'plugins': {}}
+                for f in files:
+                    cfg['plugins'][f] = True
+                cfg_changed = True
+            else:
+                # ensure keys exist for found files
+                mode = cfg.get('mode', 'auto')
+                if 'plugins' not in cfg or not isinstance(cfg['plugins'], dict):
+                    cfg['plugins'] = {}
+                for f in files:
+                    if f not in cfg['plugins']:
+                        # new file: default load based on mode
+                        cfg['plugins'][f] = True if cfg.get('mode', 'auto') == 'auto' else False
+                        cfg_changed = True
+                # optionally remove entries for missing files
+                removed = [k for k in list(cfg['plugins'].keys()) if k not in files]
+                for k in removed:
+                    try:
+                        del cfg['plugins'][k]
+                        cfg_changed = True
+                    except Exception:
+                        pass
+
+            if cfg_changed:
+                self._write_plugins_config(cfg, cfg_path)
+
+            self.plugins_config = cfg
+
+            # clear existing plugin entries and failures
             self.plugins.clear()
             self.plugins_failed.clear()
-            # try to load each
-            for fname in files:
+
+            # determine which files to load
+            files_to_load = []
+            if cfg.get('mode', 'auto') == 'auto':
+                files_to_load = files
+            else:
+                for f in files:
+                    if cfg.get('plugins', {}).get(f):
+                        files_to_load.append(f)
+
+            # try to load each selected file
+            # reset file->module/display maps
+            self.plugin_file_map.clear()
+            self.plugin_display_by_file.clear()
+            for fname in files_to_load:
                 fpath = os.path.join(plugins_dir, fname)
                 module = self._load_plugin_module(fpath)
                 if module is None:
@@ -818,6 +889,12 @@ class PaintWindow:
                 # require process_image callable
                 if hasattr(module, 'process_image') and callable(getattr(module, 'process_image')):
                     self.plugins[str(display)] = module
+                    try:
+                        self.plugin_file_map[fname] = module
+                        self.plugin_display_by_file[fname] = str(display)
+                    except Exception:
+                        pass
+
             # refresh UI
             self.refresh_plugins_ui()
         except Exception:
@@ -832,19 +909,37 @@ class PaintWindow:
             self.plugin_vars.clear()
             if container is None:
                 # nothing to draw (window not opened) — just populate vars
-                for name in sorted(self.plugins.keys()):
-                    self.plugin_vars[name] = tk.BooleanVar(value=False)
+                # populate vars from config if available
+                if getattr(self, 'plugins_config', None) and isinstance(self.plugins_config.get('plugins'), dict):
+                    for fname in sorted(self.plugins_config.get('plugins').keys()):
+                        val = bool(self.plugins_config['plugins'].get(fname, False))
+                        self.plugin_vars[fname] = tk.BooleanVar(value=val)
+                else:
+                    for name in sorted(self.plugins.keys()):
+                        self.plugin_vars[name] = tk.BooleanVar(value=False)
                 return
             for child in container.winfo_children():
                 try:
                     child.destroy()
                 except Exception:
                     pass
-            for name in sorted(self.plugins.keys()):
-                var = tk.BooleanVar(value=False)
-                cb = Checkbutton(container, text=name, variable=var)
-                cb.pack(anchor='w')
-                self.plugin_vars[name] = var
+            # show entries from config if available, else show loaded plugins
+            if getattr(self, 'plugins_config', None) and isinstance(self.plugins_config.get('plugins'), dict):
+                for fname in sorted(self.plugins_config.get('plugins').keys()):
+                    val = bool(self.plugins_config['plugins'].get(fname, False))
+                    var = tk.BooleanVar(value=val)
+                    # label: use display name if module loaded, else filename
+                    disp = self.plugin_display_by_file.get(fname, fname)
+                    cb = Checkbutton(container, text=disp, variable=var,
+                                     command=(lambda f=fname, v=var: self._on_config_toggle(f, v)))
+                    cb.pack(anchor='w')
+                    self.plugin_vars[fname] = var
+            else:
+                for name in sorted(self.plugins.keys()):
+                    var = tk.BooleanVar(value=False)
+                    cb = Checkbutton(container, text=name, variable=var)
+                    cb.pack(anchor='w')
+                    self.plugin_vars[name] = var
             # show any failed imports below
             if getattr(self, 'plugins_failed', None):
                 sep = Label(container, text='--- Failed to load ---')
@@ -862,6 +957,27 @@ class PaintWindow:
         except Exception:
             pass
 
+    def _on_config_toggle(self, fname, var):
+        try:
+            if not getattr(self, 'plugins_config', None):
+                return
+            self.plugins_config.setdefault('plugins', {})[fname] = bool(var.get())
+            # switch to manual mode when user changes selection
+            try:
+                if self.plugins_config.get('mode') != 'manual':
+                    self.plugins_config['mode'] = 'manual'
+            except Exception:
+                pass
+            # save config
+            try:
+                plugins_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'plugins'))
+                _, cfg_path = self._read_plugins_config(plugins_dir)
+                self._write_plugins_config(self.plugins_config, cfg_path)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def apply_selected_plugins(self):
         """Apply selected plugins to the uploaded/background image only.
 
@@ -874,26 +990,43 @@ class PaintWindow:
 
         # collect selected plugins
         to_apply = []
-        for name, var in list(self.plugin_vars.items()):
+        for key, var in list(self.plugin_vars.items()):
             try:
-                if var.get() and name in self.plugins:
-                    mod = self.plugins[name]
-                    proc = getattr(mod, 'process_image', None)
-                    if callable(proc):
-                        to_apply.append((name, proc))
+                if not var.get():
+                    continue
+                # key may be a filename (new config) or a display name (legacy)
+                mod = None
+                if getattr(self, 'plugin_file_map', None) and key in self.plugin_file_map:
+                    mod = self.plugin_file_map.get(key)
+                elif key in self.plugins:
+                    mod = self.plugins.get(key)
+                if mod is None:
+                    continue
+                proc = getattr(mod, 'process_image', None)
+                if callable(proc):
+                    to_apply.append((key, proc))
             except Exception:
                 pass
         if not to_apply:
             return
 
-        # disable plugin controls while running
+        # disable known plugin controls while running (leave close enabled)
         try:
-            if getattr(self, 'plugins_window', None):
-                for w in self.plugins_window.winfo_children():
-                    try:
-                        w.configure(state='disabled')
-                    except Exception:
-                        pass
+            try:
+                if getattr(self, 'plugins_refresh_btn', None):
+                    self.plugins_refresh_btn.configure(state='disabled')
+            except Exception:
+                pass
+            try:
+                if getattr(self, 'plugins_apply_btn', None):
+                    self.plugins_apply_btn.configure(state='disabled')
+            except Exception:
+                pass
+            try:
+                if getattr(self, 'plugins_cancel_btn', None):
+                    self.plugins_cancel_btn.configure(state='normal')
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -930,14 +1063,23 @@ class PaintWindow:
                     self._refresh_bg_image()
                 except Exception:
                     pass
-                # re-enable plugin window widgets
+                # re-enable known plugin window widgets
                 try:
-                    if getattr(self, 'plugins_window', None):
-                        for w in self.plugins_window.winfo_children():
-                            try:
-                                w.configure(state='normal')
-                            except Exception:
-                                pass
+                    if getattr(self, 'plugins_refresh_btn', None):
+                        try:
+                            self.plugins_refresh_btn.configure(state='normal')
+                        except Exception:
+                            pass
+                    if getattr(self, 'plugins_apply_btn', None):
+                        try:
+                            self.plugins_apply_btn.configure(state='normal')
+                        except Exception:
+                            pass
+                    if getattr(self, 'plugins_cancel_btn', None):
+                        try:
+                            self.plugins_cancel_btn.configure(state='normal')
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 # refresh UI listing so any import errors are visible
@@ -963,14 +1105,23 @@ class PaintWindow:
             t = threading.Thread(target=worker, args=(img, to_apply), daemon=True)
             t.start()
         except Exception:
-            # re-enable if failed to start
+            # re-enable known buttons if failed to start
             try:
-                if getattr(self, 'plugins_window', None):
-                    for w in self.plugins_window.winfo_children():
-                        try:
-                            w.configure(state='normal')
-                        except Exception:
-                            pass
+                try:
+                    if getattr(self, 'plugins_refresh_btn', None):
+                        self.plugins_refresh_btn.configure(state='normal')
+                except Exception:
+                    pass
+                try:
+                    if getattr(self, 'plugins_apply_btn', None):
+                        self.plugins_apply_btn.configure(state='normal')
+                except Exception:
+                    pass
+                try:
+                    if getattr(self, 'plugins_cancel_btn', None):
+                        self.plugins_cancel_btn.configure(state='normal')
+                except Exception:
+                    pass
             except Exception:
                 pass
 
