@@ -4,8 +4,6 @@ from tkinter import *
 import tkinter as tk
 from tkinter.ttk import Combobox, Notebook, Progressbar
 import importlib.util
-import importlib.machinery
-import sys
 import threading
 import traceback
 import json
@@ -887,8 +885,6 @@ class PaintWindow:
                         if cfg.get('plugins', {}).get(f):
                             files_to_load.append(f)
 
-            # try to load each selected file
-            # reset file->module/display maps
             self.plugin_file_map.clear()
             self.plugin_display_by_file.clear()
             for fname in files_to_load:
@@ -897,7 +893,6 @@ class PaintWindow:
                 if module is None:
                     continue
                 display = getattr(module, 'PLUGIN_NAME', None) or getattr(module, 'NAME', None) or os.path.splitext(fname)[0]
-                # require process_image callable
                 if hasattr(module, 'process_image') and callable(getattr(module, 'process_image')):
                     self.plugins[str(display)] = module
                     try:
@@ -906,20 +901,15 @@ class PaintWindow:
                     except Exception:
                         pass
 
-            # refresh UI
             self.refresh_plugins_ui()
         except Exception:
             pass
 
     def refresh_plugins_ui(self):
-        """Rebuild the checkboxes UI for current plugins - show only loaded plugins using filenames."""
         try:
-            # clear UI container if present
             container = getattr(self, 'plugins_list_frame', None)
-            # always reset vars so internal state is consistent
             self.plugin_vars.clear()
             if container is None:
-                # nothing to draw (window not opened) — just populate vars from loaded plugins
                 for fname in sorted(self.plugin_file_map.keys()):
                     val = bool(self.plugins_config.get('plugins', {}).get(fname, False)) if self.plugins_config else False
                     self.plugin_vars[fname] = tk.BooleanVar(value=val)
