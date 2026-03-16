@@ -2,10 +2,12 @@ import os
 import time
 from tkinter import *
 import tkinter as tk
-from tkinter.ttk import Combobox, Notebook
+from tkinter.ttk import Combobox, Notebook, Progressbar
 import importlib.util
 import importlib.machinery
 import sys
+import threading
+import traceback
 from tkinter import colorchooser, messagebox, filedialog, simpledialog
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
@@ -169,6 +171,9 @@ class PaintWindow:
         self.plugins_list_frame = None
         self.plugins_btn = Button(tools_tab, text='Plugins', command=self.show_plugins_window)
         self.plugins_btn.pack(side=LEFT, padx=5)
+        self.plugins_failed = {}  # filename -> error string
+        self.plugin_progress_var = None
+        self._plugins_cancel_requested = False
 
     def paint(self, event):
         if self.is_closed:
@@ -771,19 +776,26 @@ class PaintWindow:
 
     def _load_plugin_module(self, path: str):
         """Dynamically import a plugin module from a file path and return the module or None."""
+        name = os.path.splitext(os.path.basename(path))[0]
+        mod_name = f'paint_plugin_{name}_{int(time.time()*1000)}'
+        spec = importlib.util.spec_from_file_location(mod_name, path)
+        if spec is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        loader = spec.loader
+        if loader is None:
+            return None
         try:
-            name = os.path.splitext(os.path.basename(path))[0]
-            mod_name = f'paint_plugin_{name}_{int(time.time()*1000)}'
-            spec = importlib.util.spec_from_file_location(mod_name, path)
-            if spec is None:
-                return None
-            module = importlib.util.module_from_spec(spec)
-            loader = spec.loader
-            if loader is None:
-                return None
             loader.exec_module(module)
             return module
-        except Exception:
+        except Exception as e:
+            # capture the traceback for reporting
+            tb = traceback.format_exc()
+            fname = os.path.basename(path)
+            try:
+                self.plugins_failed[fname] = tb
+            except Exception:
+                pass
             return None
 
     def load_plugins(self):
@@ -795,6 +807,7 @@ class PaintWindow:
             files = [f for f in os.listdir(plugins_dir) if f.endswith('.py') and not f.startswith('__')]
             # clear existing plugin entries
             self.plugins.clear()
+            self.plugins_failed.clear()
             # try to load each
             for fname in files:
                 fpath = os.path.join(plugins_dir, fname)
@@ -832,39 +845,134 @@ class PaintWindow:
                 cb = Checkbutton(container, text=name, variable=var)
                 cb.pack(anchor='w')
                 self.plugin_vars[name] = var
+            # show any failed imports below
+            if getattr(self, 'plugins_failed', None):
+                sep = Label(container, text='--- Failed to load ---')
+                sep.pack(anchor='w', pady=(6, 0))
+                for fname, err in self.plugins_failed.items():
+                    # show filename and provide a small 'Details' button
+                    row = Frame(container)
+                    row.pack(fill=X, anchor='w')
+                    lbl = Label(row, text=fname)
+                    lbl.pack(side=LEFT)
+                    def make_show(tb):
+                        return lambda: messagebox.showerror('Plugin Load Error', tb, parent=self.window if self.is_toplevel else None)
+                    btn = Button(row, text='Details', command=make_show(err))
+                    btn.pack(side=LEFT, padx=6)
         except Exception:
             pass
 
     def apply_selected_plugins(self):
-        """Apply selected plugins to the uploaded/background image only."""
+        """Apply selected plugins to the uploaded/background image only.
+
+        Processing happens in a background thread to avoid UI freeze. UI updates
+        are scheduled back on the main thread via `after()`.
+        """
         if not getattr(self, 'bg_loaded', False):
-            messagebox.showinfo('Plugins', 'No uploaded/background image to apply plugins to.', parent=self.window if self.is_toplevel else None)
+            messagebox.showinfo('Plugins', 'No uploaded/background image to apply plugins to.', parent=self.plugins_window )
             return
+
+        # collect selected plugins
+        to_apply = []
+        for name, var in list(self.plugin_vars.items()):
+            try:
+                if var.get() and name in self.plugins:
+                    mod = self.plugins[name]
+                    proc = getattr(mod, 'process_image', None)
+                    if callable(proc):
+                        to_apply.append((name, proc))
+            except Exception:
+                pass
+        if not to_apply:
+            return
+
+        # disable plugin controls while running
         try:
-            img = self.image_buffer.get_image().copy()
-            applied = False
-            for name, var in list(self.plugin_vars.items()):
+            if getattr(self, 'plugins_window', None):
+                for w in self.plugins_window.winfo_children():
+                    try:
+                        w.configure(state='disabled')
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        def worker(img_copy, procs):
+            result = img_copy
+            total = len(procs)
+            count = 0
+            for name, proc in procs:
                 try:
-                    if var.get() and name in self.plugins:
-                        mod = self.plugins[name]
-                        proc = getattr(mod, 'process_image', None)
-                        if callable(proc):
-                            new_img = proc(img)
-                            if new_img is not None:
-                                img = new_img
-                                applied = True
+                    if getattr(self, '_plugins_cancel_requested', False):
+                        break
+                    maybe = proc(result)
+                    if maybe is not None:
+                        result = maybe
+                    count += 1
+                    # update progress
+                    try:
+                        pct = (count / total) * 100.0 if total else 100.0
+                        self.window.after(1, lambda p=pct: self.plugin_progress_var.set(p))
+                    except Exception:
+                        pass
                 except Exception:
-                    pass
-            if applied:
+                    # store error so user can inspect later
+                    try:
+                        self.plugins_failed[name] = traceback.format_exc()
+                    except Exception:
+                        pass
+            # schedule UI update on main thread
+            def finish():
                 try:
-                    self.image_buffer.image = img
+                    self.image_buffer.image = result
                     self.image_buffer.draw = ImageDraw.Draw(self.image_buffer.image)
                     self.bg_loaded = True
                     self._refresh_bg_image()
                 except Exception:
                     pass
+                # re-enable plugin window widgets
+                try:
+                    if getattr(self, 'plugins_window', None):
+                        for w in self.plugins_window.winfo_children():
+                            try:
+                                w.configure(state='normal')
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                # refresh UI listing so any import errors are visible
+                try:
+                    self.refresh_plugins_ui()
+                except Exception:
+                    pass
+
+            try:
+                self.window.after(1, finish)
+            except Exception:
+                pass
+
+        try:
+            img = self.image_buffer.get_image().copy()
+            # reset cancel flag & progress
+            self._plugins_cancel_requested = False
+            try:
+                if self.plugin_progress_var is not None:
+                    self.plugin_progress_var.set(0.0)
+            except Exception:
+                pass
+            t = threading.Thread(target=worker, args=(img, to_apply), daemon=True)
+            t.start()
         except Exception:
-            pass
+            # re-enable if failed to start
+            try:
+                if getattr(self, 'plugins_window', None):
+                    for w in self.plugins_window.winfo_children():
+                        try:
+                            w.configure(state='normal')
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
     def show_plugins_window(self):
         """Open a small Toplevel window listing plugins with checkboxes, refresh and apply controls."""
@@ -878,32 +986,59 @@ class PaintWindow:
             pw = tk.Toplevel(self.window)
             pw.title('Plugins')
             pw.geometry('450x300')
-            # when closed, clear references
+            # remember window reference immediately so handlers can use it
+            self.plugins_window = pw
+            # when closed, cancel any running work and clear references
             def on_close():
                 try:
-                    self.plugins_window.destroy()
+                    # request cancel for worker
+                    try:
+                        self._plugins_cancel_requested = True
+                    except Exception:
+                        pass
+                    # destroy the actual Toplevel
+                    try:
+                        pw.destroy()
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 self.plugins_window = None
                 self.plugins_list_frame = None
+                try:
+                    if self.plugin_progress_var is not None:
+                        self.plugin_progress_var.set(0.0)
+                except Exception:
+                    pass
             pw.protocol('WM_DELETE_WINDOW', on_close)
 
             list_frame = Frame(pw)
             list_frame.pack(fill=BOTH, expand=True, padx=8, pady=8)
             self.plugins_list_frame = list_frame
 
+            # progress bar area
+            prog_frame = Frame(pw)
+            prog_frame.pack(fill=X, padx=8, pady=(0, 4))
+            self.plugin_progress_var = tk.DoubleVar(value=0.0)
+            prog = Progressbar(prog_frame, variable=self.plugin_progress_var, maximum=100.0)
+            prog.pack(fill=X, expand=True)
+            self.plugin_progress = prog
+
             btns = Frame(pw)
             btns.pack(fill=X, padx=8, pady=4)
-            refresh_b = Button(btns, text='Refresh Plugins', command=lambda: (self.load_plugins(), None))
+            refresh_b = Button(btns, text='Refresh Plugins', command=lambda: (self.load_plugins(), self.refresh_plugins_ui()))
             refresh_b.pack(side=LEFT, padx=4)
             apply_b = Button(btns, text='Apply Selected', command=self.apply_selected_plugins)
             apply_b.pack(side=LEFT, padx=4)
+            cancel_b = Button(btns, text='Cancel', command=lambda: setattr(self, '_plugins_cancel_requested', True))
+            cancel_b.pack(side=LEFT, padx=4)
             close_b = Button(btns, text='Close', command=on_close)
             close_b.pack(side=RIGHT, padx=4)
 
             # load and populate
             try:
                 self.load_plugins()
+                self.refresh_plugins_ui()
             except Exception:
                 pass
         except Exception:

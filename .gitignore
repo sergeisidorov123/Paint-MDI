@@ -49,4 +49,4 @@ media/
 uploads/
 
 # 9. Файлы изображений
-.png
+*.png

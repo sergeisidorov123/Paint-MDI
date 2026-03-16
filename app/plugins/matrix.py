@@ -1,6 +1,5 @@
 from PIL import Image
 
-# Plugin metadata
 PLUGIN_NAME = "Matrix convolution"
 
 def process_image(input_image: Image.Image) -> Image.Image:
