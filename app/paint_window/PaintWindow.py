@@ -3,6 +3,9 @@ import time
 from tkinter import *
 import tkinter as tk
 from tkinter.ttk import Combobox, Notebook
+import importlib.util
+import importlib.machinery
+import sys
 from tkinter import colorchooser, messagebox, filedialog, simpledialog
 from .WindowCounter import WindowCounter
 from ..ButtonDescription import ButtonDescription
@@ -158,6 +161,14 @@ class PaintWindow:
         self.zoom_out_btn.pack(side=LEFT, padx=5)
         self.zoom_reset_btn = Button(tools_tab, text="Reset Zoom", command=self.reset_zoom)
         self.zoom_reset_btn.pack(side=LEFT, padx=5)
+
+        # Plugins: open plugin manager window
+        self.plugins = {}  # name -> module
+        self.plugin_vars = {}  # name -> tk.BooleanVar
+        self.plugins_window = None
+        self.plugins_list_frame = None
+        self.plugins_btn = Button(tools_tab, text='Plugins', command=self.show_plugins_window)
+        self.plugins_btn.pack(side=LEFT, padx=5)
 
     def paint(self, event):
         if self.is_closed:
@@ -757,6 +768,146 @@ class PaintWindow:
                         pass
             except Exception as e:
                 messagebox.showerror('Error', f'Could not open image:\n{e}', parent=self.window if self.is_toplevel else None)
+
+    def _load_plugin_module(self, path: str):
+        """Dynamically import a plugin module from a file path and return the module or None."""
+        try:
+            name = os.path.splitext(os.path.basename(path))[0]
+            mod_name = f'paint_plugin_{name}_{int(time.time()*1000)}'
+            spec = importlib.util.spec_from_file_location(mod_name, path)
+            if spec is None:
+                return None
+            module = importlib.util.module_from_spec(spec)
+            loader = spec.loader
+            if loader is None:
+                return None
+            loader.exec_module(module)
+            return module
+        except Exception:
+            return None
+
+    def load_plugins(self):
+        """Scan the plugins directory and load available plugins, then refresh UI."""
+        try:
+            plugins_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'plugins'))
+            if not os.path.isdir(plugins_dir):
+                return
+            files = [f for f in os.listdir(plugins_dir) if f.endswith('.py') and not f.startswith('__')]
+            # clear existing plugin entries
+            self.plugins.clear()
+            # try to load each
+            for fname in files:
+                fpath = os.path.join(plugins_dir, fname)
+                module = self._load_plugin_module(fpath)
+                if module is None:
+                    continue
+                display = getattr(module, 'PLUGIN_NAME', None) or getattr(module, 'NAME', None) or os.path.splitext(fname)[0]
+                # require process_image callable
+                if hasattr(module, 'process_image') and callable(getattr(module, 'process_image')):
+                    self.plugins[str(display)] = module
+            # refresh UI
+            self.refresh_plugins_ui()
+        except Exception:
+            pass
+
+    def refresh_plugins_ui(self):
+        """Rebuild the checkboxes UI for current plugins."""
+        try:
+            # clear UI container if present
+            container = getattr(self, 'plugins_list_frame', None)
+            # always reset vars so internal state is consistent
+            self.plugin_vars.clear()
+            if container is None:
+                # nothing to draw (window not opened) — just populate vars
+                for name in sorted(self.plugins.keys()):
+                    self.plugin_vars[name] = tk.BooleanVar(value=False)
+                return
+            for child in container.winfo_children():
+                try:
+                    child.destroy()
+                except Exception:
+                    pass
+            for name in sorted(self.plugins.keys()):
+                var = tk.BooleanVar(value=False)
+                cb = Checkbutton(container, text=name, variable=var)
+                cb.pack(anchor='w')
+                self.plugin_vars[name] = var
+        except Exception:
+            pass
+
+    def apply_selected_plugins(self):
+        """Apply selected plugins to the uploaded/background image only."""
+        if not getattr(self, 'bg_loaded', False):
+            messagebox.showinfo('Plugins', 'No uploaded/background image to apply plugins to.', parent=self.window if self.is_toplevel else None)
+            return
+        try:
+            img = self.image_buffer.get_image().copy()
+            applied = False
+            for name, var in list(self.plugin_vars.items()):
+                try:
+                    if var.get() and name in self.plugins:
+                        mod = self.plugins[name]
+                        proc = getattr(mod, 'process_image', None)
+                        if callable(proc):
+                            new_img = proc(img)
+                            if new_img is not None:
+                                img = new_img
+                                applied = True
+                except Exception:
+                    pass
+            if applied:
+                try:
+                    self.image_buffer.image = img
+                    self.image_buffer.draw = ImageDraw.Draw(self.image_buffer.image)
+                    self.bg_loaded = True
+                    self._refresh_bg_image()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def show_plugins_window(self):
+        """Open a small Toplevel window listing plugins with checkboxes, refresh and apply controls."""
+        try:
+            if getattr(self, 'plugins_window', None) and tk.Toplevel.winfo_exists(self.plugins_window):
+                try:
+                    self.plugins_window.lift()
+                except Exception:
+                    pass
+                return
+            pw = tk.Toplevel(self.window)
+            pw.title('Plugins')
+            pw.geometry('450x300')
+            # when closed, clear references
+            def on_close():
+                try:
+                    self.plugins_window.destroy()
+                except Exception:
+                    pass
+                self.plugins_window = None
+                self.plugins_list_frame = None
+            pw.protocol('WM_DELETE_WINDOW', on_close)
+
+            list_frame = Frame(pw)
+            list_frame.pack(fill=BOTH, expand=True, padx=8, pady=8)
+            self.plugins_list_frame = list_frame
+
+            btns = Frame(pw)
+            btns.pack(fill=X, padx=8, pady=4)
+            refresh_b = Button(btns, text='Refresh Plugins', command=lambda: (self.load_plugins(), None))
+            refresh_b.pack(side=LEFT, padx=4)
+            apply_b = Button(btns, text='Apply Selected', command=self.apply_selected_plugins)
+            apply_b.pack(side=LEFT, padx=4)
+            close_b = Button(btns, text='Close', command=on_close)
+            close_b.pack(side=RIGHT, padx=4)
+
+            # load and populate
+            try:
+                self.load_plugins()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def build_export_image(self):
         w, h = int(self.paper_width), int(self.paper_height)

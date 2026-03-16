@@ -132,6 +132,11 @@ class PaintApp:
         messagebox.showinfo("About Paint App", 
                             "Paint MDI Application\n\nLaboratory work num 1\n\nCreated by Sidorov Sergei, RIS-24-1")
         
+    def __plugins_info(self):
+        """Показывает информацию о плагинах"""
+        messagebox.showinfo("Plugins", 
+                            "Currently, there are no plugins available for this application.\n\nStay tuned for future updates!")
+        
     def __buttons_create(self):
         """Создает кнопки для управления приложением"""
         new_paint_button = Button(self.root, 
@@ -150,6 +155,14 @@ class PaintApp:
         about_button.pack(pady=10)
         ButtonDescription(about_button, "Информация о приложении")
         
+        plugin_button = Button(self.root, 
+                              text="Plugins", 
+                              command=self.__plugins_info,
+                              font=("Arial", 12),
+                              padx=20, pady=10)
+        plugin_button.pack(pady=10)
+        ButtonDescription(plugin_button, "Плагины для приложения")
+        
         exit_button = Button(self.root, 
                             text="Exit", 
                             command=self.__exit_app,
@@ -157,3 +170,5 @@ class PaintApp:
                             padx=20, pady=10)
         exit_button.pack(pady=10)
         ButtonDescription(exit_button, "Выход из приложения")
+        
+        
