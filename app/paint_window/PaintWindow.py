@@ -13,7 +13,7 @@ from ..ButtonDescription import ButtonDescription
 from .Painter import Painter
 from PIL import Image, ImageTk, ImageDraw
 from .ImageBuffer import ImageBuffer
-
+from .PluginEditor import PluginEditor
 
 class PaintWindow:
     def __init__(self, parent, app=None, preload_image=None, file_path=None, is_saved=False, is_updated=False, changes=False, allowed_plugins=None):
@@ -1151,7 +1151,7 @@ class PaintWindow:
                 return
             pw = tk.Toplevel(self.window)
             pw.title('Plugins')
-            pw.geometry('450x300')
+            pw.geometry('750x500')
             # remember window reference immediately so handlers can use it
             self.plugins_window = pw
             # when closed, cancel any running work and clear references
@@ -1198,13 +1198,14 @@ class PaintWindow:
             apply_b = Button(btns, text='Apply Selected', command=self.apply_selected_plugins)
             apply_b.pack(side=LEFT, padx=4)
             self.plugins_apply_btn = apply_b
+            new_plugin_b = Button(btns, text='New Plugin', command=self._show_plugin_template)
+            new_plugin_b.pack(side=LEFT, padx=4)
             cancel_b = Button(btns, text='Cancel', command=lambda: setattr(self, '_plugins_cancel_requested', True))
             cancel_b.pack(side=LEFT, padx=4)
             self.plugins_cancel_btn = cancel_b
             close_b = Button(btns, text='Close', command=on_close)
             close_b.pack(side=RIGHT, padx=4)
 
-            # load and populate
             try:
                 self.load_plugins()
                 self.refresh_plugins_ui()
@@ -1212,6 +1213,23 @@ class PaintWindow:
                 pass
         except Exception:
             pass
+
+    def _show_plugin_template(self):
+        """Открывает окно с примером кода плагина для сохранения"""
+        try:
+            
+            plugins_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'plugins'))
+            
+            def on_saved():
+                try:
+                    self.load_plugins()
+                    self.refresh_plugins_ui()
+                except Exception:
+                    pass
+            
+            PluginEditor(self.window, plugins_dir, on_saved)
+        except Exception as e:
+            messagebox.showerror('Error', f'Could not open plugin editor: {str(e)}')
 
     def build_export_image(self):
         w, h = int(self.paper_width), int(self.paper_height)
