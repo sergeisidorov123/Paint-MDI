@@ -1,6 +1,6 @@
 from PIL import Image, ImageFilter, ImageOps
 
-PLUGIN_NAME = "Example"
+PLUGIN_NAME = "Blur"
 
 def process_image(img: Image.Image) -> Image.Image:
     ImageOps.grayscale(img)
