@@ -4,8 +4,6 @@ from tkinter import *
 import tkinter as tk
 from tkinter.ttk import Combobox, Notebook, Progressbar
 import importlib.util
-import importlib.machinery
-import sys
 import threading
 import traceback
 import json
@@ -15,7 +13,7 @@ from ..ButtonDescription import ButtonDescription
 from .Painter import Painter
 from PIL import Image, ImageTk, ImageDraw
 from .ImageBuffer import ImageBuffer
-
+from .PluginEditor import PluginEditor
 
 class PaintWindow:
     def __init__(self, parent, app=None, preload_image=None, file_path=None, is_saved=False, is_updated=False, changes=False, allowed_plugins=None):
@@ -887,8 +885,6 @@ class PaintWindow:
                         if cfg.get('plugins', {}).get(f):
                             files_to_load.append(f)
 
-            # try to load each selected file
-            # reset file->module/display maps
             self.plugin_file_map.clear()
             self.plugin_display_by_file.clear()
             for fname in files_to_load:
@@ -897,7 +893,6 @@ class PaintWindow:
                 if module is None:
                     continue
                 display = getattr(module, 'PLUGIN_NAME', None) or getattr(module, 'NAME', None) or os.path.splitext(fname)[0]
-                # require process_image callable
                 if hasattr(module, 'process_image') and callable(getattr(module, 'process_image')):
                     self.plugins[str(display)] = module
                     try:
@@ -906,20 +901,15 @@ class PaintWindow:
                     except Exception:
                         pass
 
-            # refresh UI
             self.refresh_plugins_ui()
         except Exception:
             pass
 
     def refresh_plugins_ui(self):
-        """Rebuild the checkboxes UI for current plugins - show only loaded plugins using filenames."""
         try:
-            # clear UI container if present
             container = getattr(self, 'plugins_list_frame', None)
-            # always reset vars so internal state is consistent
             self.plugin_vars.clear()
             if container is None:
-                # nothing to draw (window not opened) — just populate vars from loaded plugins
                 for fname in sorted(self.plugin_file_map.keys()):
                     val = bool(self.plugins_config.get('plugins', {}).get(fname, False)) if self.plugins_config else False
                     self.plugin_vars[fname] = tk.BooleanVar(value=val)
@@ -1161,7 +1151,7 @@ class PaintWindow:
                 return
             pw = tk.Toplevel(self.window)
             pw.title('Plugins')
-            pw.geometry('450x300')
+            pw.geometry('750x500')
             # remember window reference immediately so handlers can use it
             self.plugins_window = pw
             # when closed, cancel any running work and clear references
@@ -1208,13 +1198,14 @@ class PaintWindow:
             apply_b = Button(btns, text='Apply Selected', command=self.apply_selected_plugins)
             apply_b.pack(side=LEFT, padx=4)
             self.plugins_apply_btn = apply_b
+            new_plugin_b = Button(btns, text='New Plugin', command=self._show_plugin_template)
+            new_plugin_b.pack(side=LEFT, padx=4)
             cancel_b = Button(btns, text='Cancel', command=lambda: setattr(self, '_plugins_cancel_requested', True))
             cancel_b.pack(side=LEFT, padx=4)
             self.plugins_cancel_btn = cancel_b
             close_b = Button(btns, text='Close', command=on_close)
             close_b.pack(side=RIGHT, padx=4)
 
-            # load and populate
             try:
                 self.load_plugins()
                 self.refresh_plugins_ui()
@@ -1222,6 +1213,23 @@ class PaintWindow:
                 pass
         except Exception:
             pass
+
+    def _show_plugin_template(self):
+        """Открывает окно с примером кода плагина для сохранения"""
+        try:
+            
+            plugins_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'plugins'))
+            
+            def on_saved():
+                try:
+                    self.load_plugins()
+                    self.refresh_plugins_ui()
+                except Exception:
+                    pass
+            
+            PluginEditor(self.window, plugins_dir, on_saved)
+        except Exception as e:
+            messagebox.showerror('Error', f'Could not open plugin editor: {str(e)}')
 
     def build_export_image(self):
         w, h = int(self.paper_width), int(self.paper_height)

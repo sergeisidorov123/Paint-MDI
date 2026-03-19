@@ -1,9 +1,10 @@
 {
   "mode": "manual",
   "plugins": {
-    "border_plugin.py": true,
+    "blur_plugin.py": false,
+    "border_plugin.py": false,
+    "border_plugin_test.py": true,
     "matrix_plugin.py": false,
-    "negative_plugin.py": true,
-    "plugin_template.py": false
+    "negative_plugin.py": false
   }
 }
